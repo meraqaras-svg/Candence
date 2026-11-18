@@ -1,0 +1,140 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Read-only connectivity probe endpoint used by startup validation
+    match /test/connection {
+      allow get: if true;
+      allow list, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidThemePrefs(prefs) {
+      return prefs is map &&
+        prefs.keys().hasAll([
+          'accentColor',
+          'glassIntensity',
+          'ambientGlowEnabled',
+          'ambientGlowIntensity',
+          'layoutDensity',
+          'playerBarStyle'
+        ]) &&
+        prefs.keys().hasOnly([
+          'accentColor',
+          'glassIntensity',
+          'ambientGlowEnabled',
+          'ambientGlowIntensity',
+          'layoutDensity',
+          'playerBarStyle'
+        ]) &&
+        prefs.accentColor is string && prefs.accentColor.size() >= 1 && prefs.accentColor.size() <= 32 &&
+        prefs.glassIntensity is number && prefs.glassIntensity >= 0 && prefs.glassIntensity <= 100 &&
+        prefs.ambientGlowEnabled is bool &&
+        prefs.ambientGlowIntensity is number && prefs.ambientGlowIntensity >= 0 && prefs.ambientGlowIntensity <= 100 &&
+        prefs.layoutDensity is string && prefs.layoutDensity.size() >= 1 && prefs.layoutDensity.size() <= 32 &&
+        prefs.playerBarStyle is string && prefs.playerBarStyle.size() >= 1 && prefs.playerBarStyle.size() <= 32;
+    }
+
+    function isValidUserSync(data) {
+      return data.keys().hasAll([
+          'ownerId',
+          'playlists',
+          'favoriteIds',
+          'themePrefs',
+          'homeLayout',
+          'savedTracks',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId',
+          'playlists',
+          'favoriteIds',
+          'themePrefs',
+          'homeLayout',
+          'savedTracks',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.ownerId is string &&
+        data.ownerId.size() >= 1 &&
+        data.ownerId.size() <= 128 &&
+        data.ownerId == request.auth.uid &&
+        data.playlists is list &&
+        data.playlists.size() <= 50 &&
+        (data.playlists.size() == 0 || data.playlists[0] is map) &&
+        data.favoriteIds is list &&
+        data.favoriteIds.size() <= 200 &&
+        (data.favoriteIds.size() == 0 || (data.favoriteIds[0] is string && data.favoriteIds[0].size() <= 128)) &&
+        isValidThemePrefs(data.themePrefs) &&
+        data.homeLayout is list &&
+        data.homeLayout.size() <= 10 &&
+        (data.homeLayout.size() == 0 || data.homeLayout[0] is map) &&
+        data.savedTracks is list &&
+        data.savedTracks.size() <= 150 &&
+        (data.savedTracks.size() == 0 || data.savedTracks[0] is map) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    match /userSync/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && isOwner(userId);
+      allow list: if false;
+
+      allow create: if isVerifiedUser() &&
+        isValidId(userId) &&
+        isOwner(userId) &&
+        isValidUserSync(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser() &&
+        isValidId(userId) &&
+        isOwner(userId) &&
+        isValidUserSync(incoming()) &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'playlists',
+            'favoriteIds',
+            'themePrefs',
+            'homeLayout',
+            'savedTracks',
+            'updatedAt'
+          ])
+        );
+
+      allow delete: if isVerifiedUser() && isValidId(userId) && isOwner(userId);
+    }
+  }
+}

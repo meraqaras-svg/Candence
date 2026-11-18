@@ -1,0 +1,66 @@
+{
+  "entities": {
+    "UserSync": {
+      "title": "UserSync",
+      "description": "Per-user cloud-synced music library preferences including playlists, favorite track IDs, theme customizer settings, home screen widget layout, and imported track metadata.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the document owner.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "playlists": {
+          "type": "array",
+          "description": "Bounded list (max 50) of user playlists synced across PC and Android."
+        },
+        "favoriteIds": {
+          "type": "array",
+          "description": "Bounded list (max 200) of favorited track IDs."
+        },
+        "themePrefs": {
+          "type": "object",
+          "description": "Liquid Glass theme and UI customizer preferences."
+        },
+        "homeLayout": {
+          "type": "array",
+          "description": "Bounded list (max 10) of Home widget order and visibility configurations."
+        },
+        "savedTracks": {
+          "type": "array",
+          "description": "Bounded list (max 150) of external/imported track metadata referenced by playlists and favorites."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the cloud sync profile was initialized."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the cloud sync profile was last updated."
+        }
+      },
+      "required": [
+        "ownerId",
+        "playlists",
+        "favoriteIds",
+        "themePrefs",
+        "homeLayout",
+        "savedTracks",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/userSync/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserSync"
+      },
+      "description": "Stores isolated per-user cloud sync state keyed by the authenticated user's UID."
+    }
+  }
+}

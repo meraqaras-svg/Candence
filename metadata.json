@@ -1,0 +1,6 @@
+{
+  "name": "Cadence",
+  "description": "A minimalist dark-mode music player blending glassmorphic aesthetics with local audio playback, iTunes Search previews, synced lyrics, and a customizable home layout.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
