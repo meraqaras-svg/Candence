@@ -13,6 +13,8 @@ export interface TranslationDictionary {
   loading: string;
   active: string;
   off: string;
+  copy: string;
+  copied: string;
   songSingular: string;
   songPlural: string;
   songsCount: (n: number) => string;
@@ -70,6 +72,10 @@ export interface TranslationDictionary {
   sidebarSignInGoogle: string;
   sidebarSigningIn: string;
   sidebarSettings: string;
+  sidebarNyxonPro: string;
+  sidebarAdminPanel: string;
+  planFreeLabel: string;
+  planProLabel: string;
   mobileCloudSyncAria: string;
   mobileUploadAria: string;
   mobileThemeAria: string;
@@ -124,7 +130,7 @@ export interface TranslationDictionary {
   searchTopResults: (q: string) => string;
   searchNoMatches: (q: string) => string;
 
-  // Library View
+  // Library View & Offline Vault
   libraryTitle: string;
   libraryBack: string;
   libraryPlaylistLabel: string;
@@ -142,8 +148,14 @@ export interface TranslationDictionary {
   libraryDropSubtitle: string;
   libraryChooseFiles: string;
   libraryRemoveLocalAria: (title: string) => string;
+  vaultTitle: string;
+  vaultSubtitle: string;
+  vaultAudioUsage: (size: string, count: number) => string;
+  vaultLyricsCached: (count: number) => string;
+  vaultClearLyricsCache: string;
+  vaultOfflineReady: string;
 
-  // Player Bar
+  // Player Bar & Audio Ads
   playerBarAria: string;
   playerEmptyState: string;
   playerOpenNowPlayingAria: (title: string) => string;
@@ -163,6 +175,11 @@ export interface TranslationDictionary {
   playerUnmuteAria: string;
   playerVolumeAria: string;
   playerExpandAria: string;
+  adBannerLabel: string;
+  adBannerSubtitle: string;
+  adRemainingSec: (sec: number) => string;
+  adLockedHint: string;
+  adUpgradeCta: string;
 
   // Now Playing Overlay
   npDialogAria: string;
@@ -245,6 +262,54 @@ export interface TranslationDictionary {
   settingsHideApiKeyAria: string;
   settingsSaveButton: string;
 
+  // NYXON Pro Modal
+  proModalTitle: string;
+  proModalSubtitle: string;
+  proModalCloseAria: string;
+  proCurrentPlanLabel: string;
+  proAlreadyActiveTitle: string;
+  proAlreadyActiveDesc: string;
+  proBenefitNoAds: string;
+  proBenefitOfflineVault: string;
+  proBenefitCloudSync: string;
+  proBuyButton: string;
+  proBuyNoteReminder: string;
+  proBuyNoLinkConfigured: string;
+  proRedeemTitle: string;
+  proRedeemPlaceholder: string;
+  proRedeemButton: string;
+  proRedeeming: string;
+  proRedeemSuccess: string;
+  proRedeemErrorEmpty: string;
+  proRedeemErrorInvalid: string;
+  proRedeemErrorUsed: string;
+
+  // Admin Panel Modal
+  adminModalTitle: string;
+  adminModalSubtitle: string;
+  adminModalCloseAria: string;
+  adminTabUsers: string;
+  adminTabCodes: string;
+  adminTabConfig: string;
+  adminSearchUsersPlaceholder: string;
+  adminUsersCount: (n: number) => string;
+  adminMakePro: string;
+  adminMakeFree: string;
+  adminNoUsersFound: string;
+  adminGenerateCode: string;
+  adminGeneratingCode: string;
+  adminCodeStatusActive: string;
+  adminCodeStatusUsed: string;
+  adminCodeUsedBy: (email: string) => string;
+  adminNoCodesYet: string;
+  adminCheckoutUrlLabel: string;
+  adminCheckoutUrlPlaceholder: string;
+  adminCustomAdUrlLabel: string;
+  adminCustomAdUrlPlaceholder: string;
+  adminCustomAdHint: string;
+  adminSaveConfig: string;
+  adminConfigSaved: string;
+
   // Link & Playlist Import Modal
   importModalTitle: string;
   importModalSubtitle: string;
@@ -267,6 +332,9 @@ export interface TranslationDictionary {
   importSpotifyUrlError: string;
   importSpotifyParseError: string;
   importSpotifyFallbackNotice: string;
+  importSpotifyLoadedCount: (count: number) => string;
+  importUploadCsvBtn: string;
+  importCsvEmptyError: string;
   importPlaylistNameLabel: string;
   importPlaylistNamePlaceholder: string;
   importTracklistLabel: string;
@@ -305,6 +373,7 @@ export interface TranslationDictionary {
   noticeSettingsSaved: string;
   noticeThemeReset: string;
   noticeCacheCleared: string;
+  noticeLyricsCacheCleared: string;
   noticeImportedPlaying: (title: string) => string;
   noticeImportedPlaylist: (name: string, count: number) => string;
   noticeLayoutSaved: string;
@@ -322,11 +391,12 @@ export interface TranslationDictionary {
   noticeSleepSet: (minutes: number) => string;
   noticeSleepEnded: string;
   noticeLanguageChanged: string;
+  noticeProUnlocked: string;
 }
 
 export const TRANSLATIONS: Record<AppLanguage, TranslationDictionary> = {
   tr: {
-    appName: 'Cadence',
+    appName: 'NYXON',
     cancel: 'İptal',
     save: 'Kaydet',
     close: 'Kapat',
@@ -337,6 +407,8 @@ export const TRANSLATIONS: Record<AppLanguage, TranslationDictionary> = {
     loading: 'Yükleniyor...',
     active: 'Aktif',
     off: 'Kapalı',
+    copy: 'Kopyala',
+    copied: 'Kopyalandı',
     songSingular: 'şarkı',
     songPlural: 'şarkı',
     songsCount: (n) => `${n} şarkı`,
@@ -347,8 +419,9 @@ export const TRANSLATIONS: Record<AppLanguage, TranslationDictionary> = {
     greetingAfternoon: 'İyi Günler',
     greetingEvening: 'İyi Akşamlar',
 
-    authWelcomeTitle: "Cadence'a Hoş Geldiniz",
-    authWelcomeSubtitle: 'Müzik kütüphanenize, çalma listelerinize ve senkronize şarkı sözlerine erişmek için giriş yapın.',
+    authWelcomeTitle: "NYXON'a Hoş Geldiniz",
+    authWelcomeSubtitle:
+      'Sıvı cam müzik deneyimine, çevrimdışı ses kasanıza ve bulut kütüphanenize erişmek için giriş yapın.',
     authTabSignIn: 'Giriş Yap',
     authTabSignUp: 'Kayıt Ol',
     authDisplayNameLabel: 'Ad Soyad (İsteğe Bağlı)',
@@ -365,12 +438,13 @@ export const TRANSLATIONS: Record<AppLanguage, TranslationDictionary> = {
     authDividerOr: 'veya',
     authGoogleButton: 'Google ile Giriş Yap',
     authGoogleSigningIn: 'Giriş yapılıyor...',
-    authGateNotice: 'Devam etmek için oturum açmalısınız.',
+    authGateNotice: 'Devam etmek için NYXON hesabınızla oturum açın.',
     authValidationEmptyEmail: 'Lütfen e-posta adresinizi girin.',
     authValidationInvalidEmail: 'Geçerli bir e-posta adresi girin.',
     authValidationEmptyPassword: 'Lütfen şifrenizi girin.',
     authValidationWeakPassword: 'Şifre çok zayıf. En az 6 karakter olmalıdır.',
-    authSignUpVerifyHint: 'Hesap oluşturuldu! Bulut eşitleme için e-postanıza gönderilen doğrulama bağlantısını onaylayın.',
+    authSignUpVerifyHint:
+      'Hesap oluşturuldu! Bulut eşitleme için e-postanıza gönderilen doğrulama bağlantısını onaylayın.',
 
     navPrimaryAria: 'Ana gezinme',
     navMobileAria: 'Mobil gezinme',
@@ -391,6 +465,10 @@ export const TRANSLATIONS: Record<AppLanguage, TranslationDictionary> = {
     sidebarSignInGoogle: 'Google ile Giriş Yap',
     sidebarSigningIn: 'Giriş yapılıyor...',
     sidebarSettings: 'Ayarlar',
+    sidebarNyxonPro: 'NYXON Pro',
+    sidebarAdminPanel: 'Admin Paneli',
+    planFreeLabel: 'Ücretsiz',
+    planProLabel: 'NYXON Pro',
     mobileCloudSyncAria: 'Bulut Eşitleme Hesabı',
     mobileUploadAria: 'Ses dosyası yükle',
     mobileThemeAria: 'Temayı Özelleştir',
@@ -398,7 +476,8 @@ export const TRANSLATIONS: Record<AppLanguage, TranslationDictionary> = {
 
     homeCustomizeButton: 'Ana Ekranı Düzenle',
     homeSaveLayout: 'Düzeni Kaydet',
-    homeEditInstructionsPre: 'Bölümleri açıp kapatın, oklarla veya sürükleyerek sıralayın ve ardından ',
+    homeEditInstructionsPre:
+      'Bölümleri açıp kapatın, oklarla veya sürükleyerek sıralayın ve ardından ',
     homeEditInstructionsEnd: ' düğmesine tıklayın.',
     homeHiddenTitle: 'Ana ekranınız gizlendi',
     homeHiddenBody:
@@ -436,12 +515,14 @@ export const TRANSLATIONS: Record<AppLanguage, TranslationDictionary> = {
     searchButton: 'Ara',
     searchTrending: 'Popüler:',
     searchDiscoverTitle: 'Müziği Keşfet',
-    searchDiscoverBody: 'Anında tam uzunlukta çalmak için dilediğiniz sanatçıyı, şarkıyı veya albümü arayın.',
+    searchDiscoverBody:
+      'Anında tam uzunlukta çalmak için dilediğiniz sanatçıyı, şarkıyı veya albümü arayın.',
     searchBusyAria: 'Parçalar aranıyor',
     searchError: 'Şu anda arama tamamlanamıyor. Bağlantınızı kontrol edip tekrar deneyin.',
     searchInLibrary: 'Kitaplığınızda',
     searchTopResults: (q) => `"${q}" için En İyi Sonuçlar`,
-    searchNoMatches: (q) => `"${q}" ile eşleşen şarkı bulunamadı. Başka bir sanatçı veya şarkı adı deneyin.`,
+    searchNoMatches: (q) =>
+      `"${q}" ile eşleşen şarkı bulunamadı. Başka bir sanatçı veya şarkı adı deneyin.`,
 
     libraryTitle: 'Kitaplık',
     libraryBack: 'Kitaplığa Dön',
@@ -455,12 +536,19 @@ export const TRANSLATIONS: Record<AppLanguage, TranslationDictionary> = {
     libraryRemoveFromPlaylistAria: (track, pl) => `${track} parçasını ${pl} listesinden çıkar`,
     libraryTabPlaylists: (n) => `Çalma Listeleri (${n})`,
     libraryTabFavorites: (n) => `Favoriler (${n})`,
-    libraryTabLocal: (n) => `Yerel Dosyalar (${n})`,
+    libraryTabLocal: (n) => `Yerel Kasa (${n})`,
     libraryEmptyFavorites: 'Favorilere kaydetmek için herhangi bir parçadaki kalp simgesine dokunun.',
     libraryDropTitle: 'Yerel MP3, WAV veya OGG dosyalarını buraya bırakın',
-    libraryDropSubtitle: 'Doğrudan tarayıcınızda çalar ve bu cihazda saklanır.',
+    libraryDropSubtitle:
+      'IndexedDB Çevrimdışı Kasada kalıcı olarak saklanır, sayfa yenilense de internetsiz çalar.',
     libraryChooseFiles: 'Ses Dosyası Seç',
-    libraryRemoveLocalAria: (title) => `${title} parçasını Yerel Dosyalardan kaldır`,
+    libraryRemoveLocalAria: (title) => `${title} parçasını Yerel Kasadan sil`,
+    vaultTitle: 'Çevrimdışı Ses ve Söz Kasası (IndexedDB)',
+    vaultSubtitle: 'Yüklenen dosyalar ve önbelleğe alınan şarkı sözleri cihazınızda kalıcı tutulur',
+    vaultAudioUsage: (size, count) => `${size} · ${count} çevrimdışı dosya`,
+    vaultLyricsCached: (count) => `${count} önbellek şarkı sözü`,
+    vaultClearLyricsCache: 'Söz Önbelleğini Temizle',
+    vaultOfflineReady: 'Çevrimdışı Hazır',
 
     playerBarAria: 'Ses oynatıcı kontrolleri',
     playerEmptyState: 'Dinlemeye başlamak için bir parça seçin',
@@ -481,6 +569,11 @@ export const TRANSLATIONS: Record<AppLanguage, TranslationDictionary> = {
     playerUnmuteAria: 'Sesi aç',
     playerVolumeAria: 'Ses seviyesi',
     playerExpandAria: 'Şimdi Çalınıyor ekranını genişlet',
+    adBannerLabel: 'Sponsorlu Sesli Reklam',
+    adBannerSubtitle: 'Şarkınız reklam bitiminde otomatik başlayacak',
+    adRemainingSec: (sec) => `${sec} sn kaldı`,
+    adLockedHint: 'Reklam süresince geçme ve sarma kilitlidir',
+    adUpgradeCta: 'Reklamsız Dinle · Pro',
 
     npDialogAria: 'Şimdi Çalınıyor',
     npSwipeHandleAria: 'Aşağı kaydırma tutamacı',
@@ -562,6 +655,55 @@ export const TRANSLATIONS: Record<AppLanguage, TranslationDictionary> = {
     settingsHideApiKeyAria: 'API anahtarını gizle',
     settingsSaveButton: 'Ayarları Kaydet',
 
+    proModalTitle: 'NYXON Pro',
+    proModalSubtitle: 'Kesintisiz, reklamsız ve sınırsız yüksek kaliteli dinleme deneyimi',
+    proModalCloseAria: 'NYXON Pro penceresini kapat',
+    proCurrentPlanLabel: 'Mevcut Üyelik',
+    proAlreadyActiveTitle: 'NYXON Pro Üyeliğiniz Aktif',
+    proAlreadyActiveDesc: 'Tüm sesli reklamlar devre dışı. Sınırsız kesintisiz müziğin keyfini çıkarın.',
+    proBenefitNoAds: 'Sıfır sesli reklam — her şarkı anında ve kesintisiz başlar',
+    proBenefitOfflineVault: 'Kalıcı Çevrimdışı Yerel Ses ve Şarkı Sözü Kasası',
+    proBenefitCloudSync: 'Tüm cihazlarda anlık bulut eşitleme ve öncelikli destek',
+    proBuyButton: 'Satın Al (Shopier / Ödeme Linki)',
+    proBuyNoteReminder:
+      'Ödeme sırasında sipariş notuna NYXON hesap e-posta adresinizi yazmayı unutmayın.',
+    proBuyNoLinkConfigured:
+      'Ödeme bağlantısı henüz yapılandırılmadı. Aktivasyon kodunuz varsa aşağıdan kullanabilirsiniz.',
+    proRedeemTitle: 'Pro Kodu Kullan',
+    proRedeemPlaceholder: 'NYXON-XXXX-XXXX',
+    proRedeemButton: 'Kodu Aktifleştir',
+    proRedeeming: 'Doğrulanıyor...',
+    proRedeemSuccess: 'Tebrikler! NYXON Pro üyeliğiniz anında aktifleştirildi.',
+    proRedeemErrorEmpty: 'Lütfen aktivasyon kodunuzu girin.',
+    proRedeemErrorInvalid: 'Geçersiz aktivasyon kodu. Lütfen kodu kontrol edip tekrar deneyin.',
+    proRedeemErrorUsed: 'Bu aktivasyon kodu daha önce kullanılmış.',
+
+    adminModalTitle: 'NYXON Admin Paneli',
+    adminModalSubtitle: 'Kullanıcı üyelikleri, tek kullanımlık Pro kodları ve ödeme/reklam ayarları',
+    adminModalCloseAria: 'Admin Panelini kapat',
+    adminTabUsers: 'Kullanıcılar',
+    adminTabCodes: 'Pro Kodları',
+    adminTabConfig: 'Ödeme & Reklam',
+    adminSearchUsersPlaceholder: 'E-posta veya ad ile kullanıcı ara...',
+    adminUsersCount: (n) => `${n} kayıtlı kullanıcı`,
+    adminMakePro: 'Pro Yap',
+    adminMakeFree: 'Ücretsiz Yap',
+    adminNoUsersFound: 'Eşleşen kullanıcı bulunamadı.',
+    adminGenerateCode: 'Yeni 1 Kullanımlık Pro Kodu Üret',
+    adminGeneratingCode: 'Üretiliyor...',
+    adminCodeStatusActive: 'Aktif',
+    adminCodeStatusUsed: 'Kullanıldı',
+    adminCodeUsedBy: (email) => `Kullanan: ${email}`,
+    adminNoCodesYet: 'Henüz aktivasyon kodu üretilmedi.',
+    adminCheckoutUrlLabel: 'Shopier / Ödeme Bağlantısı (URL)',
+    adminCheckoutUrlPlaceholder: 'https://www.shopier.com/...',
+    adminCustomAdUrlLabel: 'Özel Sesli Reklam MP3 Bağlantısı (İsteğe Bağlı)',
+    adminCustomAdUrlPlaceholder: 'https://.../reklam.mp3 (boş bırakılırsa yerleşik Türkçe spot çalar)',
+    adminCustomAdHint:
+      'Boş bırakıldığında NYXON dahili Türkçe sesli reklam spotunu otomatik oynatır.',
+    adminSaveConfig: 'Ayarları Kaydet',
+    adminConfigSaved: 'Ödeme ve reklam ayarları Firestore üzerine kaydedildi.',
+
     importModalTitle: 'Bağlantı ve Liste Aktarıcı',
     importModalSubtitle: 'Herhangi bir şarkı bağlantısını veya çalma listesini kitaplığınıza aktarın',
     importModalCloseAria: 'Bağlantı ve Aktar penceresini kapat',
@@ -581,24 +723,28 @@ export const TRANSLATIONS: Record<AppLanguage, TranslationDictionary> = {
     importLoadSamplePlaylist: 'Örnek Liste Yükle',
     importReadingUrl: 'Okunuyor...',
     importReadUrl: 'Bağlantıyı Oku',
-    importSpotifyUrlError: 'Bir Spotify çalma listesi bağlantısı yapıştırın (örn. https://open.spotify.com/playlist/...)',
+    importSpotifyUrlError:
+      'Geçerli bir Spotify çalma listesi bağlantısı yapıştırın (örn. https://open.spotify.com/playlist/...)',
     importSpotifyParseError:
-      'Spotify çalma listesi okunamadı. Aşağıya "Sanatçı - Şarkı Adı" listesi yapıştırın.',
+      'Çalma listesi gizli olabilir veya Spotify parçaları şu anda otomatik çekilemedi. Lütfen aşağıya "Sanatçı - Şarkı Adı" listenizi yapıştırın veya Exportify CSV dosyası yükleyin.',
     importSpotifyFallbackNotice:
-      'Liste adı ve kapağı açık oEmbed üzerinden yüklendi. Spotify tarayıcıdan parça listesi çekmeyi kısıtladığı için aşağıya örnek bir liste eklendi; aktarmadan önce dilediğiniz gibi düzenleyebilirsiniz.',
+      'Çalma listesi gizli olabilir veya Spotify parçaları otomatik çekilemedi. Lütfen aşağıya "Sanatçı - Şarkı Adı" listenizi yapıştırın veya Exportify ile dışa aktardığınız CSV dosyasını yükleyin.',
+    importSpotifyLoadedCount: (count) => `Spotify çalma listesinden ${count} gerçek parça çekildi.`,
+    importUploadCsvBtn: 'CSV / Exportify Yükle',
+    importCsvEmptyError: 'Seçilen CSV dosyasında geçerli parça bulunamadı.',
     importPlaylistNameLabel: 'Çalma Listesi Adı',
     importPlaylistNamePlaceholder: 'Aktarılan Miks',
-    importTracklistLabel: 'Parça Listesi ("Sanatçı - Şarkı Adı" veya CSV)',
+    importTracklistLabel: 'Parça Listesi ("Sanatçı - Şarkı Adı" veya Exportify CSV)',
     importPlaylistEmptyError:
-      'Lütfen bir Spotify çalma listesi bağlantısı yapıştırın veya en az bir "Sanatçı - Şarkı Adı" satırı girin.',
+      'Lütfen parça listenizi aşağıya yapıştırın, bir Exportify CSV yükleyin veya herkese açık bir Spotify çalma listesi bağlantısı girin.',
     importPlaylistMatchError: 'Parçalar eşleştirilemedi. Lütfen tekrar deneyin.',
     importMatchingProgress: (done, total) => `Eşleştiriliyor ${done}/${total}`,
     importPlaylistButton: 'Listeyi Aktar',
 
     pwaInstallApp: 'Uygulamayı Yükle',
     pwaInstallIos: "iOS'a Yükle",
-    pwaInstallAria: 'Cadence Uygulamasını Yükle',
-    pwaGuideTitle: "Cadence'ı Yükle",
+    pwaInstallAria: 'NYXON Uygulamasını Yükle',
+    pwaGuideTitle: "NYXON'u Yükle",
     pwaGuideSubtitle: 'Ana Ekranınıza ekleyin',
     pwaGuideCloseAria: 'Kurulum rehberini kapat',
     pwaAndroidTitle: 'Android (Chrome)',
@@ -622,6 +768,7 @@ export const TRANSLATIONS: Record<AppLanguage, TranslationDictionary> = {
     noticeSettingsSaved: 'Ayarlar kaydedildi.',
     noticeThemeReset: 'Tema varsayılanlara sıfırlandı.',
     noticeCacheCleared: 'Arama önbelleği temizlendi.',
+    noticeLyricsCacheCleared: 'Çevrimdışı şarkı sözü önbelleği temizlendi.',
     noticeImportedPlaying: (title) => `"${title}" aktarıldı ve çalınıyor.`,
     noticeImportedPlaylist: (name, count) => `"${name}" (${count} parça) aktarıldı.`,
     noticeLayoutSaved: 'Ana ekran düzeni kaydedildi.',
@@ -631,17 +778,18 @@ export const TRANSLATIONS: Record<AppLanguage, TranslationDictionary> = {
     noticeAddedToQueue: (track) => `"${track}" sıradakilere eklendi.`,
     noticeLyricsSaved: 'Şarkı sözleri kaydedildi.',
     noticeInvalidAudioFiles: 'Lütfen geçerli ses dosyaları seçin (MP3, WAV veya OGG).',
-    noticeUploadedSingle: (title) => `"${title}" yüklendi.`,
-    noticeUploadedMultiple: (count) => `${count} yerel ses dosyası yüklendi.`,
-    noticeRemovedLocal: 'Yerel dosya kaldırıldı.',
+    noticeUploadedSingle: (title) => `"${title}" çevrimdışı kasaya kaydedildi.`,
+    noticeUploadedMultiple: (count) => `${count} yerel ses dosyası çevrimdışı kasaya kaydedildi.`,
+    noticeRemovedLocal: 'Yerel dosya kasadan silindi.',
     noticeReuploadLocal: 'Bu yerel dosyayı çalmak için lütfen yeniden yükleyin.',
     noticeSleepOff: 'Uyku zamanlayıcısı kapatıldı.',
     noticeSleepSet: (minutes) => `Uyku zamanlayıcısı ${minutes} dakikaya ayarlandı.`,
     noticeSleepEnded: 'Uyku zamanlayıcısı doldu · Oynatma duraklatıldı.',
     noticeLanguageChanged: 'Dil Türkçe olarak ayarlandı.',
+    noticeProUnlocked: 'NYXON Pro üyeliğiniz aktif! Reklamsız keyfini çıkarın.',
   },
   en: {
-    appName: 'Cadence',
+    appName: 'NYXON',
     cancel: 'Cancel',
     save: 'Save',
     close: 'Close',
@@ -652,6 +800,8 @@ export const TRANSLATIONS: Record<AppLanguage, TranslationDictionary> = {
     loading: 'Loading...',
     active: 'Active',
     off: 'Off',
+    copy: 'Copy',
+    copied: 'Copied',
     songSingular: 'song',
     songPlural: 'songs',
     songsCount: (n) => `${n} ${n === 1 ? 'song' : 'songs'}`,
@@ -662,8 +812,9 @@ export const TRANSLATIONS: Record<AppLanguage, TranslationDictionary> = {
     greetingAfternoon: 'Good Afternoon',
     greetingEvening: 'Good Evening',
 
-    authWelcomeTitle: 'Welcome to Cadence',
-    authWelcomeSubtitle: 'Sign in to access your music library, playlists, and synced lyrics.',
+    authWelcomeTitle: 'Welcome to NYXON',
+    authWelcomeSubtitle:
+      'Sign in to access your Liquid Glass music library, offline audio vault, and synced lyrics.',
     authTabSignIn: 'Sign In',
     authTabSignUp: 'Sign Up',
     authDisplayNameLabel: 'Display Name (Optional)',
@@ -680,12 +831,13 @@ export const TRANSLATIONS: Record<AppLanguage, TranslationDictionary> = {
     authDividerOr: 'or',
     authGoogleButton: 'Sign in with Google',
     authGoogleSigningIn: 'Signing in...',
-    authGateNotice: 'Please sign in to continue.',
+    authGateNotice: 'Sign in with your NYXON account to continue.',
     authValidationEmptyEmail: 'Please enter your email address.',
     authValidationInvalidEmail: 'Please enter a valid email address.',
     authValidationEmptyPassword: 'Please enter your password.',
     authValidationWeakPassword: 'Password is too weak. Use at least 6 characters.',
-    authSignUpVerifyHint: 'Account created! Check your email for the verification link to enable Cloud Sync.',
+    authSignUpVerifyHint:
+      'Account created! Check your email for the verification link to enable Cloud Sync.',
 
     navPrimaryAria: 'Primary navigation',
     navMobileAria: 'Mobile navigation',
@@ -706,6 +858,10 @@ export const TRANSLATIONS: Record<AppLanguage, TranslationDictionary> = {
     sidebarSignInGoogle: 'Sign in with Google',
     sidebarSigningIn: 'Signing in...',
     sidebarSettings: 'Settings',
+    sidebarNyxonPro: 'NYXON Pro',
+    sidebarAdminPanel: 'Admin Panel',
+    planFreeLabel: 'Free',
+    planProLabel: 'NYXON Pro',
     mobileCloudSyncAria: 'Cloud Sync Account',
     mobileUploadAria: 'Upload audio',
     mobileThemeAria: 'Customize Theme',
@@ -713,7 +869,8 @@ export const TRANSLATIONS: Record<AppLanguage, TranslationDictionary> = {
 
     homeCustomizeButton: 'Customize Home',
     homeSaveLayout: 'Save Layout',
-    homeEditInstructionsPre: 'Toggle sections on or off, reorder them with the arrows or by dragging, then select ',
+    homeEditInstructionsPre:
+      'Toggle sections on or off, reorder them with the arrows or by dragging, then select ',
     homeEditInstructionsEnd: '.',
     homeHiddenTitle: 'Your Home screen is hidden',
     homeHiddenBody:
@@ -770,12 +927,19 @@ export const TRANSLATIONS: Record<AppLanguage, TranslationDictionary> = {
     libraryRemoveFromPlaylistAria: (track, pl) => `Remove ${track} from ${pl}`,
     libraryTabPlaylists: (n) => `Playlists (${n})`,
     libraryTabFavorites: (n) => `Favorites (${n})`,
-    libraryTabLocal: (n) => `Local Files (${n})`,
+    libraryTabLocal: (n) => `Offline Vault (${n})`,
     libraryEmptyFavorites: 'Tap the heart icon on any track to save it to Favorites.',
     libraryDropTitle: 'Drop local MP3, WAV, or OGG files here',
-    libraryDropSubtitle: 'Plays directly in your browser and saves on this device.',
+    libraryDropSubtitle:
+      'Saved permanently in your browser IndexedDB Offline Vault — survives reloads and plays offline.',
     libraryChooseFiles: 'Choose Audio Files',
-    libraryRemoveLocalAria: (title) => `Remove ${title} from Local Files`,
+    libraryRemoveLocalAria: (title) => `Delete ${title} from Offline Vault`,
+    vaultTitle: 'Offline Audio & Lyrics Vault (IndexedDB)',
+    vaultSubtitle: 'Uploaded files and cached lyrics persist locally on this device',
+    vaultAudioUsage: (size, count) => `${size} · ${count} offline ${count === 1 ? 'file' : 'files'}`,
+    vaultLyricsCached: (count) => `${count} cached lyrics`,
+    vaultClearLyricsCache: 'Clear Lyrics Cache',
+    vaultOfflineReady: 'Offline Ready',
 
     playerBarAria: 'Audio player controls',
     playerEmptyState: 'Select a track to start listening',
@@ -796,6 +960,11 @@ export const TRANSLATIONS: Record<AppLanguage, TranslationDictionary> = {
     playerUnmuteAria: 'Unmute volume',
     playerVolumeAria: 'Volume',
     playerExpandAria: 'Expand Now Playing',
+    adBannerLabel: 'Sponsored Audio Ad',
+    adBannerSubtitle: 'Your next track starts automatically after this spot',
+    adRemainingSec: (sec) => `${sec}s left`,
+    adLockedHint: 'Skip & seek are locked during the ad',
+    adUpgradeCta: 'Go Ad-Free · Pro',
 
     npDialogAria: 'Now Playing',
     npSwipeHandleAria: 'Swipe down handle',
@@ -877,6 +1046,55 @@ export const TRANSLATIONS: Record<AppLanguage, TranslationDictionary> = {
     settingsHideApiKeyAria: 'Hide API key',
     settingsSaveButton: 'Save Settings',
 
+    proModalTitle: 'NYXON Pro',
+    proModalSubtitle: 'Uninterrupted, ad-free listening with full offline vault & cloud sync',
+    proModalCloseAria: 'Close NYXON Pro modal',
+    proCurrentPlanLabel: 'Current Plan',
+    proAlreadyActiveTitle: 'Your NYXON Pro Membership Is Active',
+    proAlreadyActiveDesc: 'All audio ads are disabled. Enjoy uninterrupted listening everywhere.',
+    proBenefitNoAds: 'Zero audio ads — every track plays immediately without interruption',
+    proBenefitOfflineVault: 'Persistent Offline Audio & Synced Lyrics Vault',
+    proBenefitCloudSync: 'Instant multi-device cloud sync & priority access',
+    proBuyButton: 'Purchase (Shopier / Checkout Link)',
+    proBuyNoteReminder:
+      'Remember to include your NYXON account email in the checkout order note.',
+    proBuyNoLinkConfigured:
+      'Checkout URL is not configured yet. If you have an activation code, redeem it below.',
+    proRedeemTitle: 'Redeem Pro Code',
+    proRedeemPlaceholder: 'NYXON-XXXX-XXXX',
+    proRedeemButton: 'Activate Code',
+    proRedeeming: 'Verifying...',
+    proRedeemSuccess: 'Congrats! Your NYXON Pro plan is now active.',
+    proRedeemErrorEmpty: 'Please enter an activation code.',
+    proRedeemErrorInvalid: 'Invalid activation code. Please check and try again.',
+    proRedeemErrorUsed: 'This activation code has already been redeemed.',
+
+    adminModalTitle: 'NYXON Admin Panel',
+    adminModalSubtitle: 'Manage user plans, 1-time Pro activation codes, and payment/ad config',
+    adminModalCloseAria: 'Close Admin Panel',
+    adminTabUsers: 'Users',
+    adminTabCodes: 'Pro Codes',
+    adminTabConfig: 'Payment & Ads',
+    adminSearchUsersPlaceholder: 'Search users by email or display name...',
+    adminUsersCount: (n) => `${n} registered ${n === 1 ? 'user' : 'users'}`,
+    adminMakePro: 'Set Pro',
+    adminMakeFree: 'Set Free',
+    adminNoUsersFound: 'No matching users found.',
+    adminGenerateCode: 'Generate 1-Time Pro Code',
+    adminGeneratingCode: 'Generating...',
+    adminCodeStatusActive: 'Active',
+    adminCodeStatusUsed: 'Used',
+    adminCodeUsedBy: (email) => `Used by: ${email}`,
+    adminNoCodesYet: 'No activation codes generated yet.',
+    adminCheckoutUrlLabel: 'Shopier / Payment Checkout URL',
+    adminCheckoutUrlPlaceholder: 'https://www.shopier.com/...',
+    adminCustomAdUrlLabel: 'Custom Audio Ad MP3 URL (Optional)',
+    adminCustomAdUrlPlaceholder: 'https://.../ad.mp3 (leave blank for built-in Turkish spot)',
+    adminCustomAdHint:
+      'When left blank, NYXON automatically plays the built-in Turkish audio ad spot.',
+    adminSaveConfig: 'Save Configuration',
+    adminConfigSaved: 'Payment & audio ad settings saved to Firestore.',
+
     importModalTitle: 'Link & Playlist Importer',
     importModalSubtitle: 'Import any track link or playlist directly into your library',
     importModalCloseAria: 'Close Link & Import modal',
@@ -896,24 +1114,28 @@ export const TRANSLATIONS: Record<AppLanguage, TranslationDictionary> = {
     importLoadSamplePlaylist: 'Load Sample Playlist',
     importReadingUrl: 'Reading...',
     importReadUrl: 'Read URL',
-    importSpotifyUrlError: 'Paste a Spotify playlist URL (e.g. https://open.spotify.com/playlist/...)',
+    importSpotifyUrlError:
+      'Paste a valid Spotify playlist URL (e.g. https://open.spotify.com/playlist/...)',
     importSpotifyParseError:
-      'Unable to read Spotify playlist URL. Paste an "Artist - Song Title" list below instead.',
+      'This playlist may be private or Spotify tracks could not be fetched automatically. Please paste your "Artist - Song Title" tracklist below or upload an Exportify CSV file.',
     importSpotifyFallbackNotice:
-      'Loaded playlist title & artwork via public oEmbed. Spotify restricts cross-origin tracklist scraping in the browser, so we pre-filled a starter tracklist below—edit or paste any "Artist - Song Title" lines before importing.',
+      'This playlist may be private or Spotify tracks could not be fetched automatically. Please paste your "Artist - Song Title" tracklist below or upload an Exportify CSV file.',
+    importSpotifyLoadedCount: (count) => `Fetched ${count} tracks from Spotify playlist.`,
+    importUploadCsvBtn: 'Upload CSV / Exportify',
+    importCsvEmptyError: 'No valid tracks found in the selected CSV file.',
     importPlaylistNameLabel: 'Playlist Name',
     importPlaylistNamePlaceholder: 'My Imported Mix',
-    importTracklistLabel: 'Tracklist ("Artist - Song Title" or CSV)',
+    importTracklistLabel: 'Tracklist ("Artist - Song Title" or Exportify CSV)',
     importPlaylistEmptyError:
-      'Please paste a Spotify playlist URL or enter at least one "Artist - Song Title" line.',
+      'Please paste your tracklist below, upload an Exportify CSV file, or enter a public Spotify playlist URL.',
     importPlaylistMatchError: 'Failed to match tracks. Please try again.',
     importMatchingProgress: (done, total) => `Matching ${done}/${total}`,
     importPlaylistButton: 'Import Playlist',
 
     pwaInstallApp: 'Install App',
     pwaInstallIos: 'Install on iOS',
-    pwaInstallAria: 'Install Cadence App',
-    pwaGuideTitle: 'Install Cadence',
+    pwaInstallAria: 'Install NYXON App',
+    pwaGuideTitle: 'Install NYXON',
     pwaGuideSubtitle: 'Add to your Home Screen',
     pwaGuideCloseAria: 'Close install guide',
     pwaAndroidTitle: 'Android (Chrome)',
@@ -937,6 +1159,7 @@ export const TRANSLATIONS: Record<AppLanguage, TranslationDictionary> = {
     noticeSettingsSaved: 'Settings saved.',
     noticeThemeReset: 'Theme reset to defaults.',
     noticeCacheCleared: 'Cleared search cache.',
+    noticeLyricsCacheCleared: 'Offline lyrics cache cleared.',
     noticeImportedPlaying: (title) => `Imported & playing "${title}".`,
     noticeImportedPlaylist: (name, count) => `Imported "${name}" (${count} tracks).`,
     noticeLayoutSaved: 'Home layout saved.',
@@ -946,14 +1169,15 @@ export const TRANSLATIONS: Record<AppLanguage, TranslationDictionary> = {
     noticeAddedToQueue: (track) => `Added "${track}" to Up Next.`,
     noticeLyricsSaved: 'Lyrics saved.',
     noticeInvalidAudioFiles: 'Please select valid audio files (MP3, WAV, or OGG).',
-    noticeUploadedSingle: (title) => `Uploaded "${title}".`,
-    noticeUploadedMultiple: (count) => `Uploaded ${count} local audio files.`,
-    noticeRemovedLocal: 'Removed local file.',
+    noticeUploadedSingle: (title) => `Saved "${title}" to Offline Vault.`,
+    noticeUploadedMultiple: (count) => `Saved ${count} local audio files to Offline Vault.`,
+    noticeRemovedLocal: 'Deleted local file from vault.',
     noticeReuploadLocal: 'Please re-upload this local file to play it.',
     noticeSleepOff: 'Sleep timer turned off.',
     noticeSleepSet: (minutes) => `Sleep timer set for ${minutes} minutes.`,
     noticeSleepEnded: 'Sleep timer ended · Playback paused.',
     noticeLanguageChanged: 'Language switched to English.',
+    noticeProUnlocked: 'NYXON Pro unlocked! Enjoy ad-free listening.',
   },
 };
 

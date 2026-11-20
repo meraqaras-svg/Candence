@@ -37,6 +37,7 @@ import { getLocalizedAccentOptions } from '../utils/ambientColor';
 import { useI18n } from '../utils/I18nContext';
 import { DEFAULT_THEME_PREFS } from '../utils/storage';
 import { getEffectiveYouTubeApiKey, getEnvYouTubeApiKey } from '../utils/youtubeAndOembed';
+import { AnimatedTabIndicator, NYXON_SPRING } from './MotionPrimitives';
 
 export type SettingsModalTab = 'theme' | 'api';
 
@@ -161,7 +162,7 @@ export function SettingsModal({
             initial={{ opacity: 0, scale: 0.95, y: 12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 10 }}
-            transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+            transition={NYXON_SPRING}
             className="w-full max-w-xl max-h-[85dvh] overflow-y-auto rounded-2xl liquid-glass-modal backdrop-blur-2xl border border-white/[0.12] p-5 sm:p-6 space-y-5"
             onClick={(e) => e.stopPropagation()}
           >
@@ -194,28 +195,40 @@ export function SettingsModal({
                 type="button"
                 aria-selected={activeTab === 'theme'}
                 onClick={() => setActiveTab('theme')}
-                className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
+                className={`relative flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
                   activeTab === 'theme'
-                    ? 'bg-white text-zinc-950 shadow-sm'
+                    ? 'text-zinc-950'
                     : 'text-zinc-300 hover:text-white'
                 }`}
               >
-                <Palette className="w-3.5 h-3.5" />
-                <span>{t.settingsTabTheme}</span>
+                {activeTab === 'theme' && (
+                  <AnimatedTabIndicator
+                    layoutId="settings-tab-pill"
+                    className="rounded-lg bg-white shadow-sm"
+                  />
+                )}
+                <Palette className="relative z-10 w-3.5 h-3.5" />
+                <span className="relative z-10">{t.settingsTabTheme}</span>
               </button>
               <button
                 role="tab"
                 type="button"
                 aria-selected={activeTab === 'api'}
                 onClick={() => setActiveTab('api')}
-                className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
+                className={`relative flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
                   activeTab === 'api'
-                    ? 'bg-white text-zinc-950 shadow-sm'
+                    ? 'text-zinc-950'
                     : 'text-zinc-300 hover:text-white'
                 }`}
               >
-                <Cloud className="w-3.5 h-3.5" />
-                <span>{t.settingsTabAccount}</span>
+                {activeTab === 'api' && (
+                  <AnimatedTabIndicator
+                    layoutId="settings-tab-pill"
+                    className="rounded-lg bg-white shadow-sm"
+                  />
+                )}
+                <Cloud className="relative z-10 w-3.5 h-3.5" />
+                <span className="relative z-10">{t.settingsTabAccount}</span>
               </button>
             </div>
 

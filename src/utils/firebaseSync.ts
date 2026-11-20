@@ -13,23 +13,33 @@ import {
   type Auth,
 } from 'firebase/auth';
 import {
+  collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocFromServer,
+  getDocs,
   getFirestore,
   onSnapshot,
+  runTransaction,
   serverTimestamp,
   setDoc,
+  updateDoc,
   type Firestore,
 } from 'firebase/firestore';
 import type {
+  AdminUserRecord,
   AppLanguage,
   CloudUserProfile,
   HomeWidgetConfig,
+  PaymentAdConfig,
   Playlist,
+  PromoCodeRecord,
   ThemePrefs,
   Track,
+  UserPlan,
 } from '../types/music';
+import { generatePromoCode, isAdminEmail, normalizePromoCode } from './audioAdEngine';
 import { getTranslations } from './i18n';
 import { normalizeLayout } from './layoutManager';
 import { DEFAULT_THEME_PREFS } from './storage';
@@ -67,6 +77,9 @@ export interface CloudSyncState {
   themePrefs: ThemePrefs;
   homeLayout: HomeWidgetConfig[];
   savedTracks: Track[];
+  plan?: UserPlan;
+  email?: string | null;
+  displayName?: string | null;
 }
 
 interface ResolvedFirebaseConfig {
@@ -80,7 +93,7 @@ interface ResolvedFirebaseConfig {
 }
 
 export const DEFAULT_FIREBASE_CONFIG: ResolvedFirebaseConfig = {
-  apiKey: 'AIzaSyCFU6YRhTCVyzJJXzcDF14IFKhRs8eemT0',
+  apiKey: 'AIzaSyCFU6YRhTCVyzJJXZcDF14IFKhRs8eemT0',
   authDomain: 'muzikapptone-c6971.firebaseapp.com',
   projectId: 'muzikapptone-c6971',
   storageBucket: 'muzikapptone-c6971.firebasestorage.app',
@@ -89,24 +102,29 @@ export const DEFAULT_FIREBASE_CONFIG: ResolvedFirebaseConfig = {
   firestoreDatabaseId: '(default)',
 };
 
+function cleanConfigValue(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  return raw.trim().replace(/^["']+|["']+$/g, '').trim();
+}
+
 function isPlaceholderValue(val: string): boolean {
-  const trimmed = val.trim();
-  if (!trimmed) return true;
-  const upper = trimmed.toUpperCase();
+  const cleaned = cleanConfigValue(val);
+  if (!cleaned) return true;
+  const upper = cleaned.toUpperCase();
   return (
     upper.startsWith('MY_') ||
     upper.startsWith('YOUR_') ||
     upper.startsWith('<') ||
     upper === 'UNDEFINED' ||
     upper === 'NULL' ||
-    trimmed === 'remixed-project-id'
+    cleaned === 'remixed-project-id'
   );
 }
 
 function readProcessEnv(name: string): string {
   try {
     if (typeof process !== 'undefined' && process.env && typeof process.env[name] === 'string') {
-      const val = process.env[name]!.trim();
+      const val = cleanConfigValue(process.env[name]);
       if (!isPlaceholderValue(val)) {
         return val;
       }
@@ -118,11 +136,9 @@ function readProcessEnv(name: string): string {
 }
 
 function pickEnvValue(metaVal: unknown, processNames: string[], fallback: string): string {
-  if (typeof metaVal === 'string') {
-    const trimmed = metaVal.trim();
-    if (!isPlaceholderValue(trimmed)) {
-      return trimmed;
-    }
+  const cleanedMeta = cleanConfigValue(metaVal);
+  if (cleanedMeta && !isPlaceholderValue(cleanedMeta)) {
+    return cleanedMeta;
   }
   for (const name of processNames) {
     const procVal = readProcessEnv(name);
@@ -130,7 +146,7 @@ function pickEnvValue(metaVal: unknown, processNames: string[], fallback: string
       return procVal;
     }
   }
-  return fallback;
+  return cleanConfigValue(fallback);
 }
 
 export interface FirebaseEnvOverrides {
@@ -169,11 +185,14 @@ export function resolveFirebaseConfig(
     // Fallback cleanly in Node test runner
   }
 
-  const apiKey = pickEnvValue(
+  const rawApiKey = pickEnvValue(
     overrides?.VITE_FIREBASE_API_KEY ?? metaApiKey,
     ['VITE_FIREBASE_API_KEY', 'FIREBASE_API_KEY'],
     DEFAULT_FIREBASE_CONFIG.apiKey
   );
+  const apiKey = rawApiKey.startsWith('AIza')
+    ? rawApiKey
+    : DEFAULT_FIREBASE_CONFIG.apiKey;
   const authDomain = pickEnvValue(
     overrides?.VITE_FIREBASE_AUTH_DOMAIN ?? metaAuthDomain,
     ['VITE_FIREBASE_AUTH_DOMAIN', 'FIREBASE_AUTH_DOMAIN'],
@@ -259,7 +278,6 @@ async function validateFirestoreConnection(db: Firestore): Promise<void> {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
-      // Wait briefly for experimentalAutoDetectLongPolling fallback in cross-origin iframes and retry once
       await new Promise((resolve) => setTimeout(resolve, 1500));
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
         return;
@@ -267,7 +285,7 @@ async function validateFirestoreConnection(db: Firestore): Promise<void> {
       try {
         await getDocFromServer(doc(db, 'test', 'connection'));
       } catch {
-        // Continue quietly in local Guest Mode if network/iframe blocks Firestore streaming
+        // Continue quietly if offline
       }
     }
   }
@@ -304,10 +322,6 @@ export function isFirebaseConfigured(): boolean {
   return resolveFirebaseConfig() !== null;
 }
 
-/**
- * Strips undefined keys and enforces rule boundary limits so Firestore writes
- * always satisfy hardened security rules.
- */
 export function sanitizeCloudSyncPayload(state: CloudSyncState): CloudSyncState {
   const cleanPlaylists: Playlist[] = state.playlists.slice(0, 50).map((pl) => {
     const item: Playlist = {
@@ -416,10 +430,20 @@ export function validateEmailPasswordInput(
 export function mapFirebaseAuthError(error: unknown, lang: AppLanguage = 'tr'): string {
   const code =
     typeof error === 'object' && error !== null && 'code' in error
-      ? String((error as { code?: unknown }).code || '')
+      ? String((error as { code?: unknown }).code || '').trim()
       : '';
-  const msg = error instanceof Error ? error.message : String(error || '');
+  const msg =
+    error instanceof Error
+      ? error.message.trim()
+      : typeof error === 'object' && error !== null && 'message' in error
+        ? String((error as { message?: unknown }).message || '').trim()
+        : typeof error === 'string'
+          ? error.trim()
+          : '';
   const hay = `${code} ${msg}`.toLowerCase();
+
+  const rawDetails = [code, msg && msg !== code ? msg : ''].filter(Boolean).join(': ');
+  const appendRaw = (trText: string) => (rawDetails ? `${trText} (${rawDetails})` : trText);
 
   if (lang === 'tr') {
     if (
@@ -427,60 +451,66 @@ export function mapFirebaseAuthError(error: unknown, lang: AppLanguage = 'tr'): 
       hay.includes('auth/invalid-credential') ||
       hay.includes('auth/invalid-login-credentials')
     ) {
-      return 'Hatalı e-posta adresi veya şifre. Lütfen bilgilerinizi kontrol edin.';
+      return appendRaw('Hatalı e-posta adresi veya şifre. Lütfen bilgilerinizi kontrol edin.');
     }
     if (hay.includes('auth/user-not-found')) {
-      return 'Bu e-posta adresine kayıtlı bir hesap bulunamadı.';
+      return appendRaw('Bu e-posta adresine kayıtlı bir hesap bulunamadı.');
     }
     if (hay.includes('auth/invalid-email')) {
-      return 'Geçersiz e-posta adresi. Lütfen doğru formatta bir e-posta girin.';
+      return appendRaw('Geçersiz e-posta adresi. Lütfen doğru formatta bir e-posta girin.');
     }
     if (hay.includes('auth/weak-password')) {
-      return 'Şifre çok zayıf. En az 6 karakter kullanın.';
+      return appendRaw('Şifre çok zayıf. En az 6 karakter kullanın.');
     }
     if (hay.includes('auth/email-already-in-use')) {
-      return 'Bu e-posta adresi zaten kullanımda. Giriş yapmayı deneyin.';
+      return appendRaw('Bu e-posta adresi zaten kullanımda. Giriş yapmayı deneyin.');
     }
     if (hay.includes('auth/too-many-requests')) {
-      return 'Çok fazla başarısız deneme yapıldı. Lütfen biraz bekleyip tekrar deneyin.';
+      return appendRaw('Çok fazla başarısız deneme yapıldı. Lütfen biraz bekleyip tekrar deneyin.');
     }
     if (hay.includes('auth/user-disabled')) {
-      return 'Bu hesap devre dışı bırakılmış.';
+      return appendRaw('Bu hesap devre dışı bırakılmış.');
     }
     if (hay.includes('auth/operation-not-allowed')) {
-      return 'Bu giriş yöntemi henüz Firebase Console üzerinden etkinleştirilmemiş (Authentication → Sign-in method).';
+      return appendRaw(
+        'Bu giriş yöntemi henüz Firebase Console üzerinden etkinleştirilmemiş (Authentication → Sign-in method).'
+      );
     }
     if (hay.includes('auth/unauthorized-domain')) {
-      return 'Bu alan adı Firebase Authentication ayarlarında yetkilendirilmemiş (Yetkili alan adlarına ekleyin).';
+      return appendRaw(
+        'Bu alan adı Firebase Authentication ayarlarında yetkilendirilmemiş (Yetkili alan adlarına ekleyin).'
+      );
     }
     if (hay.includes('requests-from-referer')) {
-      return 'Bu alan adı (HTTP referrer) Firebase API anahtarı kısıtlamaları tarafından engellendi. Google Cloud Console üzerinden izin verin.';
+      return appendRaw(
+        'Bu alan adı (HTTP referrer) Firebase API anahtarı kısıtlamaları tarafından engellendi. Google Cloud Console üzerinden izin verin.'
+      );
     }
     if (hay.includes('auth/invalid-api-key') || hay.includes('auth/api-key-not-valid')) {
-      return 'Firebase API anahtarı geçersiz. Lütfen proje yapılandırmasını kontrol edin.';
+      return appendRaw('Firebase API anahtarı geçersiz. Lütfen proje yapılandırmasını kontrol edin.');
     }
     if (hay.includes('auth/account-exists-with-different-credential')) {
-      return 'Bu e-posta adresi farklı bir giriş yöntemiyle zaten kayıtlı.';
+      return appendRaw('Bu e-posta adresi farklı bir giriş yöntemiyle zaten kayıtlı.');
     }
     if (hay.includes('auth/requires-recent-login')) {
-      return 'Güvenlik nedeniyle bu işlem için yeniden giriş yapmanız gerekiyor.';
+      return appendRaw('Güvenlik nedeniyle bu işlem için yeniden giriş yapmanız gerekiyor.');
     }
     if (hay.includes('auth/popup-closed-by-user')) {
-      return 'Google giriş penceresi kapatıldı.';
+      return appendRaw('Google giriş penceresi kapatıldı.');
     }
     if (hay.includes('auth/cancelled-popup-request')) {
-      return 'Önceki giriş penceresi iptal edildi. Lütfen tekrar deneyin.';
+      return appendRaw('Önceki giriş penceresi iptal edildi. Lütfen tekrar deneyin.');
     }
     if (hay.includes('auth/popup-blocked')) {
-      return 'Açılır pencere tarayıcı tarafından engellendi. Lütfen açılır pencerelere izin verin.';
+      return appendRaw('Açılır pencere tarayıcı tarafından engellendi. Lütfen açılır pencerelere izin verin.');
     }
     if (hay.includes('auth/network-request-failed')) {
-      return 'Ağ bağlantısı hatası. İnternet bağlantınızı kontrol edin.';
+      return appendRaw('Ağ bağlantısı hatası. İnternet bağlantınızı kontrol edin.');
     }
     if (hay.includes('permission-denied') || hay.includes('insufficient permissions')) {
-      return 'Yetki hatası: Firebase güvenlik kuralları bu işleme izin vermiyor.';
+      return appendRaw('Yetki hatası: Firebase güvenlik kuralları bu işleme izin vermiyor.');
     }
-    return 'Kimlik doğrulama tamamlanamadı. Lütfen tekrar deneyin.';
+    return appendRaw('Kimlik doğrulama tamamlanamadı. Lütfen tekrar deneyin.');
   }
 
   if (
@@ -609,6 +639,7 @@ export function subscribeToAuthState(
       email: user.email,
       photoURL: user.photoURL,
       emailVerified: user.emailVerified,
+      plan: isAdminEmail(user.email) ? 'pro' : 'free',
     });
   });
 }
@@ -628,6 +659,7 @@ export async function signInWithGoogle(): Promise<CloudUserProfile> {
     email: cred.user.email,
     photoURL: cred.user.photoURL,
     emailVerified: cred.user.emailVerified,
+    plan: isAdminEmail(cred.user.email) ? 'pro' : 'free',
   };
 }
 
@@ -647,6 +679,7 @@ export async function signInWithEmail(
     email: cred.user.email,
     photoURL: cred.user.photoURL,
     emailVerified: cred.user.emailVerified,
+    plan: isAdminEmail(cred.user.email) ? 'pro' : 'free',
   };
 }
 
@@ -666,13 +699,13 @@ export async function signUpWithEmail(
     try {
       await updateProfile(cred.user, { displayName: trimmedName.slice(0, 60) });
     } catch {
-      // Non-fatal if profile displayName update fails
+      // Non-fatal
     }
   }
   try {
     await sendEmailVerification(cred.user);
   } catch {
-    // Non-fatal if verification email fails to dispatch immediately
+    // Non-fatal
   }
   return {
     uid: cred.user.uid,
@@ -680,6 +713,7 @@ export async function signUpWithEmail(
     email: cred.user.email,
     photoURL: cred.user.photoURL,
     emailVerified: cred.user.emailVerified,
+    plan: isAdminEmail(cred.user.email) ? 'pro' : 'free',
   };
 }
 
@@ -700,6 +734,7 @@ export async function refreshCurrentUser(): Promise<CloudUserProfile | null> {
     email: user.email,
     photoURL: user.photoURL,
     emailVerified: user.emailVerified,
+    plan: isAdminEmail(user.email) ? 'pro' : 'free',
   };
 }
 
@@ -737,6 +772,8 @@ export function subscribeToUserCloudSync(
           ? data.favorites
           : [];
 
+      const remotePlan: UserPlan = data.plan === 'pro' ? 'pro' : 'free';
+
       const parsed: CloudSyncState = {
         playlists: Array.isArray(data.playlists) ? (data.playlists as Playlist[]) : [],
         favoriteIds: rawFavorites as string[],
@@ -748,6 +785,9 @@ export function subscribeToUserCloudSync(
         savedTracks: Array.isArray(data.savedTracks)
           ? sanitizeFullLengthTracks(data.savedTracks as Track[])
           : [],
+        plan: remotePlan,
+        email: typeof data.email === 'string' ? data.email : null,
+        displayName: typeof data.displayName === 'string' ? data.displayName : null,
       };
       onRemoteState(parsed);
     },
@@ -756,7 +796,7 @@ export function subscribeToUserCloudSync(
       try {
         handleFirestoreError(error, OperationType.GET, path);
       } catch {
-        // Logged via handleFirestoreError; surfaced to UI via onError callback
+        // Logged via handleFirestoreError
       }
     }
   );
@@ -765,7 +805,8 @@ export function subscribeToUserCloudSync(
 export async function saveUserCloudSync(
   uid: string,
   state: CloudSyncState,
-  onError?: (error: unknown) => void
+  onError?: (error: unknown) => void,
+  userProfile?: { email?: string | null; displayName?: string | null }
 ): Promise<void> {
   const services = initFirebaseServices();
   if (!services || !uid) return;
@@ -773,12 +814,24 @@ export async function saveUserCloudSync(
   const path = `users/${uid}`;
   const docRef = doc(services.db, 'users', uid);
   const clean = sanitizeCloudSyncPayload(state);
+  const authUser = services.auth.currentUser;
+  const resolvedEmail = (userProfile?.email ?? authUser?.email ?? '').trim();
+  const resolvedDisplayName = (
+    userProfile?.displayName ??
+    authUser?.displayName ??
+    resolvedEmail.split('@')[0] ??
+    'NYXON User'
+  ).slice(0, 80);
 
   try {
     const existingSnap = await getDoc(docRef);
     if (!existingSnap.exists()) {
+      const initialPlan: UserPlan = isAdminEmail(resolvedEmail) ? 'pro' : 'free';
       await setDoc(docRef, {
         ownerId: uid,
+        email: resolvedEmail,
+        displayName: resolvedDisplayName,
+        plan: initialPlan,
         playlists: clean.playlists,
         favoriteIds: clean.favoriteIds,
         themePrefs: clean.themePrefs,
@@ -789,23 +842,284 @@ export async function saveUserCloudSync(
       });
     } else {
       const existingData = existingSnap.data();
-      await setDoc(docRef, {
-        ownerId: uid,
-        playlists: clean.playlists,
-        favoriteIds: clean.favoriteIds,
-        themePrefs: clean.themePrefs,
-        homeLayout: clean.homeLayout,
-        savedTracks: clean.savedTracks,
-        createdAt: existingData?.createdAt ?? serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
+      // Preserve existing Firestore plan so sync NEVER downgrades a Pro user back to Free
+      const preservedPlan: UserPlan =
+        existingData?.plan === 'pro' || isAdminEmail(resolvedEmail) ? 'pro' : 'free';
+
+      await setDoc(
+        docRef,
+        {
+          ownerId: uid,
+          email: resolvedEmail || existingData?.email || '',
+          displayName: resolvedDisplayName || existingData?.displayName || '',
+          plan: preservedPlan,
+          playlists: clean.playlists,
+          favoriteIds: clean.favoriteIds,
+          themePrefs: clean.themePrefs,
+          homeLayout: clean.homeLayout,
+          savedTracks: clean.savedTracks,
+          createdAt: existingData?.createdAt ?? serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
     }
   } catch (error) {
     onError?.(error);
     try {
       handleFirestoreError(error, OperationType.WRITE, path);
     } catch {
-      // Logged via handleFirestoreError; surfaced to UI via onError callback
+      // Logged via handleFirestoreError
     }
   }
+}
+
+// =============================================================================
+// Payment & Audio Ad Configuration (config/payments)
+// =============================================================================
+export const DEFAULT_PAYMENT_AD_CONFIG: PaymentAdConfig = {
+  checkoutUrl: '',
+  customAdAudioUrl: '',
+  updatedAt: 0,
+};
+
+export function subscribeToPaymentAdConfig(
+  onConfig: (config: PaymentAdConfig) => void
+): () => void {
+  const services = initFirebaseServices();
+  if (!services) {
+    onConfig(DEFAULT_PAYMENT_AD_CONFIG);
+    return () => {};
+  }
+
+  const docRef = doc(services.db, 'config', 'payments');
+  return onSnapshot(
+    docRef,
+    (snap) => {
+      if (!snap.exists()) {
+        onConfig(DEFAULT_PAYMENT_AD_CONFIG);
+        return;
+      }
+      const data = snap.data();
+      onConfig({
+        checkoutUrl: typeof data.checkoutUrl === 'string' ? data.checkoutUrl.trim() : '',
+        customAdAudioUrl:
+          typeof data.customAdAudioUrl === 'string' ? data.customAdAudioUrl.trim() : '',
+        updatedAt:
+          typeof data.updatedAt === 'number'
+            ? data.updatedAt
+            : data.updatedAt?.toMillis?.() || Date.now(),
+      });
+    },
+    () => {
+      onConfig(DEFAULT_PAYMENT_AD_CONFIG);
+    }
+  );
+}
+
+export async function savePaymentAdConfig(
+  checkoutUrl: string,
+  customAdAudioUrl: string
+): Promise<void> {
+  const services = initFirebaseServices();
+  if (!services) throw new Error('Firebase unavailable');
+  const email = services.auth.currentUser?.email;
+  if (!isAdminEmail(email)) {
+    throw new Error('Unauthorized: Admin access required.');
+  }
+
+  const docRef = doc(services.db, 'config', 'payments');
+  await setDoc(
+    docRef,
+    {
+      checkoutUrl: checkoutUrl.trim().slice(0, 500),
+      customAdAudioUrl: customAdAudioUrl.trim().slice(0, 500),
+      updatedAt: Date.now(),
+      updatedBy: email,
+    },
+    { merge: true }
+  );
+}
+
+// =============================================================================
+// 1-Time Promo Code Redemption (promoCodes/{code} + users/{uid}.plan = 'pro')
+// =============================================================================
+export type RedeemPromoResult =
+  | { ok: true; code: string }
+  | { ok: false; reason: 'empty' | 'invalid' | 'used' | 'error'; message?: string };
+
+export async function redeemPromoCode(
+  uid: string,
+  userEmail: string | null,
+  rawCode: string
+): Promise<RedeemPromoResult> {
+  const normalized = normalizePromoCode(rawCode);
+  if (!normalized) {
+    return { ok: false, reason: 'empty' };
+  }
+
+  const services = initFirebaseServices();
+  if (!services) {
+    return { ok: false, reason: 'error', message: 'Firebase unavailable' };
+  }
+
+  const codeRef = doc(services.db, 'promoCodes', normalized);
+  const userRef = doc(services.db, 'users', uid);
+
+  try {
+    const outcome = await runTransaction(services.db, async (tx) => {
+      const codeSnap = await tx.get(codeRef);
+      if (!codeSnap.exists()) {
+        return { ok: false as const, reason: 'invalid' as const };
+      }
+
+      const codeData = codeSnap.data();
+      if (codeData?.used === true) {
+        return { ok: false as const, reason: 'used' as const };
+      }
+
+      const userSnap = await tx.get(userRef);
+
+      tx.update(codeRef, {
+        used: true,
+        usedByUid: uid,
+        usedByEmail: (userEmail || '').trim(),
+        usedAt: Date.now(),
+      });
+
+      if (userSnap.exists()) {
+        tx.update(userRef, {
+          plan: 'pro',
+          redeemedPromoCode: normalized,
+          updatedAt: serverTimestamp(),
+        });
+      } else {
+        tx.set(userRef, {
+          ownerId: uid,
+          email: (userEmail || '').trim(),
+          displayName: (userEmail || '').split('@')[0] || 'NYXON Pro',
+          plan: 'pro',
+          redeemedPromoCode: normalized,
+          playlists: [],
+          favoriteIds: [],
+          themePrefs: DEFAULT_THEME_PREFS,
+          homeLayout: normalizeLayout([]),
+          savedTracks: [],
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      return { ok: true as const, code: normalized };
+    });
+
+    return outcome;
+  } catch (err) {
+    return {
+      ok: false,
+      reason: 'error',
+      message: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+// =============================================================================
+// Admin Panel Firestore Helpers (Restricted strictly to meraqaras@gmail.com)
+// =============================================================================
+export async function listAllUsers(): Promise<AdminUserRecord[]> {
+  const services = initFirebaseServices();
+  if (!services) throw new Error('Firebase unavailable');
+  if (!isAdminEmail(services.auth.currentUser?.email)) {
+    throw new Error('Unauthorized: Admin access required.');
+  }
+
+  const snap = await getDocs(collection(services.db, 'users'));
+  const records: AdminUserRecord[] = [];
+  snap.forEach((docSnap) => {
+    const d = docSnap.data();
+    const updatedMs =
+      typeof d.updatedAt === 'number'
+        ? d.updatedAt
+        : typeof d.updatedAt?.toMillis === 'function'
+          ? d.updatedAt.toMillis()
+          : 0;
+    records.push({
+      uid: docSnap.id,
+      email: typeof d.email === 'string' && d.email ? d.email : docSnap.id,
+      displayName: typeof d.displayName === 'string' ? d.displayName : '',
+      plan: d.plan === 'pro' ? 'pro' : 'free',
+      updatedAt: updatedMs,
+    });
+  });
+
+  return records.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+export async function updateUserPlan(targetUid: string, nextPlan: UserPlan): Promise<void> {
+  const services = initFirebaseServices();
+  if (!services) throw new Error('Firebase unavailable');
+  if (!isAdminEmail(services.auth.currentUser?.email)) {
+    throw new Error('Unauthorized: Admin access required.');
+  }
+
+  const userRef = doc(services.db, 'users', targetUid);
+  await updateDoc(userRef, {
+    plan: nextPlan,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function listPromoCodes(): Promise<PromoCodeRecord[]> {
+  const services = initFirebaseServices();
+  if (!services) throw new Error('Firebase unavailable');
+  if (!isAdminEmail(services.auth.currentUser?.email)) {
+    throw new Error('Unauthorized: Admin access required.');
+  }
+
+  const snap = await getDocs(collection(services.db, 'promoCodes'));
+  const codes: PromoCodeRecord[] = [];
+  snap.forEach((docSnap) => {
+    const d = docSnap.data();
+    codes.push({
+      code: docSnap.id,
+      used: Boolean(d.used),
+      createdAt: typeof d.createdAt === 'number' ? d.createdAt : 0,
+      createdBy: typeof d.createdBy === 'string' ? d.createdBy : '',
+      usedByUid: typeof d.usedByUid === 'string' ? d.usedByUid : undefined,
+      usedByEmail: typeof d.usedByEmail === 'string' ? d.usedByEmail : undefined,
+      usedAt: typeof d.usedAt === 'number' ? d.usedAt : undefined,
+    });
+  });
+
+  return codes.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export async function createPromoCode(): Promise<PromoCodeRecord> {
+  const services = initFirebaseServices();
+  if (!services) throw new Error('Firebase unavailable');
+  const adminEmail = services.auth.currentUser?.email;
+  if (!isAdminEmail(adminEmail)) {
+    throw new Error('Unauthorized: Admin access required.');
+  }
+
+  const code = generatePromoCode();
+  const record: PromoCodeRecord = {
+    code,
+    used: false,
+    createdAt: Date.now(),
+    createdBy: adminEmail || 'meraqaras@gmail.com',
+  };
+
+  await setDoc(doc(services.db, 'promoCodes', code), record);
+  return record;
+}
+
+export async function deletePromoCode(code: string): Promise<void> {
+  const services = initFirebaseServices();
+  if (!services) throw new Error('Firebase unavailable');
+  if (!isAdminEmail(services.auth.currentUser?.email)) {
+    throw new Error('Unauthorized: Admin access required.');
+  }
+
+  await deleteDoc(doc(services.db, 'promoCodes', code));
 }

@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   ArrowLeft,
+  Database,
+  FileText,
+  HardDrive,
   Heart,
   Pause,
   Play,
@@ -9,10 +12,11 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import type { Playlist, Track } from '../types/music';
+import type { OfflineVaultStats, Playlist, Track } from '../types/music';
 import { formatFileSize, formatTime } from '../utils/formatters';
 import { useI18n } from '../utils/I18nContext';
 import { CoverArt } from './CoverArt';
+import { AnimatedTabIndicator, NYXON_SPRING, SpotlightCard } from './MotionPrimitives';
 import { TrackActionMenu } from './TrackActionMenu';
 
 export type LibrarySubTab = 'playlists' | 'favorites' | 'local';
@@ -27,6 +31,7 @@ interface LibraryViewProps {
   currentTrack: Track | null;
   isPlaying: boolean;
   favoriteIds: Set<string>;
+  vaultStats?: OfflineVaultStats;
   onSelectPlaylist: (playlistId: string | null) => void;
   onPlayTrack: (track: Track, queueList?: Track[]) => void;
   onToggleFavorite: (trackId: string) => void;
@@ -39,6 +44,7 @@ interface LibraryViewProps {
   onTriggerUpload: () => void;
   onUploadFiles: (files: FileList | File[]) => void;
   onDeleteLocalTrack: (trackId: string) => void;
+  onClearCachedLyrics?: () => void;
 }
 
 export function LibraryView({
@@ -51,6 +57,7 @@ export function LibraryView({
   currentTrack,
   isPlaying,
   favoriteIds,
+  vaultStats,
   onSelectPlaylist,
   onPlayTrack,
   onToggleFavorite,
@@ -63,6 +70,7 @@ export function LibraryView({
   onTriggerUpload,
   onUploadFiles,
   onDeleteLocalTrack,
+  onClearCachedLyrics,
 }: LibraryViewProps) {
   const { t } = useI18n();
   const [subTab, setSubTab] = useState<LibrarySubTab>(initialSubTab);
@@ -216,6 +224,18 @@ export function LibraryView({
     );
   }
 
+  const totalLocalBytes =
+    vaultStats?.audioBytes && vaultStats.audioBytes > 0
+      ? vaultStats.audioBytes
+      : localTracks.reduce((acc, tr) => acc + (tr.fileSize || tr.localFileSize || 0), 0);
+  const formattedAudioUsage = formatFileSize(totalLocalBytes) || '0 KB';
+  const quotaPct =
+    vaultStats?.quotaBytes && vaultStats.usageBytes
+      ? Math.min(100, Math.max(2, Math.round((vaultStats.usageBytes / vaultStats.quotaBytes) * 100)))
+      : totalLocalBytes > 0
+        ? 8
+        : 0;
+
   return (
     <div className="px-5 sm:px-8 pt-6 pb-12 max-w-[1280px] mx-auto space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -243,7 +263,7 @@ export function LibraryView({
         </div>
       </div>
 
-      {/* Segmented Tabs */}
+      {/* Segmented Tabs with Spring layoutId Indicator */}
       <div
         role="tablist"
         aria-label={t.libraryTitle}
@@ -264,11 +284,12 @@ export function LibraryView({
               type="button"
               aria-selected={active}
               onClick={() => setSubTab(tab.id)}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
-                active ? 'bg-white text-zinc-950' : 'text-zinc-400 hover:text-white'
+              className={`relative px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
+                active ? 'text-zinc-950 font-semibold' : 'text-zinc-400 hover:text-white'
               }`}
             >
-              {tab.label}
+              {active && <AnimatedTabIndicator layoutId="library-subtab-pill" />}
+              <span className="relative z-10">{tab.label}</span>
             </button>
           );
         })}
@@ -281,22 +302,31 @@ export function LibraryView({
               pl.coverUrl ||
               pl.trackIds.map((id) => allTracksMap.get(id)).find((tr) => tr?.coverUrl)?.coverUrl;
             return (
-              <motion.button
+              <motion.div
                 key={pl.id}
-                type="button"
-                whileHover={{ y: -3, scale: 1.012 }}
-                transition={{ type: 'spring', stiffness: 380, damping: 26 }}
-                onClick={() => onSelectPlaylist(pl.id)}
-                className="group text-left rounded-2xl liquid-glass-subtle hover:bg-white/[0.07] p-3.5 transition-colors flex flex-col"
+                whileHover={{ y: -3 }}
+                whileTap={{ scale: 0.985 }}
+                transition={NYXON_SPRING}
               >
-                <div className="mb-3 overflow-hidden rounded-xl">
-                  <CoverArt src={cover} alt={pl.name} size="lg" />
-                </div>
-                <div className="text-sm font-semibold text-white truncate w-full">{pl.name}</div>
-                <div className="text-xs text-zinc-400 truncate mt-0.5 w-full">
-                  {t.songsCount(pl.trackIds.length)} · {pl.description}
-                </div>
-              </motion.button>
+                <SpotlightCard
+                  className="rounded-2xl liquid-glass-subtle hover:bg-white/[0.06] transition-colors h-full"
+                  spotlightColor="rgba(167, 139, 250, 0.16)"
+                >
+                  <button
+                    type="button"
+                    onClick={() => onSelectPlaylist(pl.id)}
+                    className="group text-left w-full p-3.5 flex flex-col"
+                  >
+                    <div className="mb-3 overflow-hidden rounded-xl">
+                      <CoverArt src={cover} alt={pl.name} size="lg" />
+                    </div>
+                    <div className="text-sm font-semibold text-white truncate w-full">{pl.name}</div>
+                    <div className="text-xs text-zinc-400 truncate mt-0.5 w-full">
+                      {t.songsCount(pl.trackIds.length)} · {pl.description}
+                    </div>
+                  </button>
+                </SpotlightCard>
+              </motion.div>
             );
           })}
         </div>
@@ -363,6 +393,56 @@ export function LibraryView({
 
       {subTab === 'local' && (
         <div className="space-y-4">
+          {/* Persistent Offline IndexedDB Vault Usage Card */}
+          <div className="rounded-2xl nyxon-glass-panel p-4 sm:p-5 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-cyan-500/15 border border-cyan-400/25 flex items-center justify-center text-cyan-300 shrink-0">
+                  <HardDrive className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-white truncate">{t.vaultTitle}</div>
+                  <div className="text-xs text-zinc-400 mt-0.5">{t.vaultSubtitle}</div>
+                </div>
+              </div>
+
+              {onClearCachedLyrics && (vaultStats?.cachedLyricsCount || 0) > 0 && (
+                <button
+                  type="button"
+                  onClick={onClearCachedLyrics}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.1] text-zinc-200 transition-colors shrink-0"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-zinc-400" />
+                  <span>{t.vaultClearLyricsCache}</span>
+                </button>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-300">
+              <span className="inline-flex items-center gap-1.5 font-mono-tabular">
+                <Database className="w-3.5 h-3.5 text-cyan-300" />
+                {t.vaultAudioUsage(formattedAudioUsage, localTracks.length)}
+              </span>
+              <span className="inline-flex items-center gap-1.5 font-mono-tabular text-zinc-400">
+                <FileText className="w-3.5 h-3.5 text-violet-300" />
+                {t.vaultLyricsCached(vaultStats?.cachedLyricsCount || 0)}
+              </span>
+              {vaultStats?.quotaBytes && (
+                <span className="text-zinc-500 font-mono-tabular">
+                  · {formatFileSize(vaultStats.usageBytes || totalLocalBytes) || formattedAudioUsage} /{' '}
+                  {formatFileSize(vaultStats.quotaBytes)}
+                </span>
+              )}
+            </div>
+
+            <div className="h-1.5 rounded-full bg-white/[0.08] overflow-hidden">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-violet-400 to-cyan-400 transition-[width] duration-300"
+                style={{ width: `${quotaPct}%` }}
+              />
+            </div>
+          </div>
+
           {/* Sleek Local Audio Dropzone inside Library */}
           <div
             onDragOver={(e) => {
@@ -406,6 +486,7 @@ export function LibraryView({
             <div className="rounded-2xl liquid-glass-subtle divide-y divide-white/[0.06]">
               {localTracks.map((track) => {
                 const active = currentTrack?.id === track.id;
+                const sizeBytes = track.fileSize || track.localFileSize;
                 return (
                   <div
                     key={track.id}
@@ -427,7 +508,7 @@ export function LibraryView({
                         <div className="text-sm font-medium text-white truncate">{track.title}</div>
                         <div className="text-xs text-zinc-400 truncate">
                           {track.artist}
-                          {track.fileSize ? ` · ${formatFileSize(track.fileSize)}` : ''}
+                          {sizeBytes ? ` · ${formatFileSize(sizeBytes)}` : ''} · {t.vaultOfflineReady}
                         </div>
                       </div>
                     </button>

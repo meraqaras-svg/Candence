@@ -1,18 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { AudioLines, Cloud, LogIn, Palette, Settings, Upload } from 'lucide-react';
+import { Crown, Settings, Shield } from 'lucide-react';
 import type {
+  ActiveAdState,
   AppLanguage,
   AppSettings,
   CloudUserProfile,
   HomeWidgetConfig,
   NavTab,
   NowPlayingTab,
+  OfflineVaultStats,
+  PaymentAdConfig,
   PlayerPrefs,
   Playlist,
   SleepTimerMinutes,
   ThemePrefs,
   Track,
+  UserPlan,
 } from './types/music';
 import { DEFAULT_RECENT_IDS, SEED_PLAYLISTS, SEED_TRACKS } from './data/seedLibrary';
 import {
@@ -26,9 +30,20 @@ import {
 import { parseLocalFilename } from './utils/formatters';
 import { generateHarmonicWavUrl } from './utils/synthWav';
 import {
+  DEFAULT_AD_SPOT_DURATION_SEC,
+  generateBuiltInAdSpotWavUrl,
+  isAdminEmail,
+  isUserAdFree,
+  shouldPlayAudioAd,
+  speakTurkishAdSpot,
+  stopTurkishAdSpotSpeech,
+} from './utils/audioAdEngine';
+import {
   DEFAULT_THEME_PREFS,
+  clearCachedLyricsDb,
   clearSearchCache,
   deleteLocalAudioBlob,
+  getOfflineVaultStats,
   loadAppSettings,
   loadCustomLyricsMap,
   loadFavoriteIds,
@@ -56,6 +71,7 @@ import {
   storeLocalAudioBlob,
 } from './utils/storage';
 import {
+  DEFAULT_PAYMENT_AD_CONFIG,
   mapFirebaseAuthError,
   mapFirestoreError,
   refreshCurrentUser,
@@ -64,6 +80,7 @@ import {
   signInWithGoogle,
   signOutFromCloud,
   subscribeToAuthState,
+  subscribeToPaymentAdConfig,
   subscribeToUserCloudSync,
 } from './utils/firebaseSync';
 import { getTranslations } from './utils/i18n';
@@ -78,13 +95,16 @@ import { SearchView } from './components/SearchView';
 import { LibraryView, type LibrarySubTab } from './components/LibraryView';
 import { PlayerBar } from './components/PlayerBar';
 import { MobileBottomNav } from './components/MobileBottomNav';
-import { PWAInstallButton } from './components/PWAInstallButton';
 import { NowPlayingOverlay } from './components/NowPlayingOverlay';
 import { PlaylistModal } from './components/PlaylistModal';
 import { SettingsModal, type SettingsModalTab } from './components/SettingsModal';
 import { LinkImportModal } from './components/LinkImportModal';
 import { YouTubePlayerBridge } from './components/YouTubePlayerBridge';
 import { AuthGate } from './components/AuthGate';
+import { NyxonLogo } from './components/NyxonLogo';
+import { NYXON_SPRING, ProgressiveBlur } from './components/MotionPrimitives';
+import { NyxonProModal } from './components/NyxonProModal';
+import { AdminPanelModal } from './components/AdminPanelModal';
 
 function readAudioDuration(url: string): Promise<number> {
   return new Promise((resolve) => {
@@ -152,11 +172,31 @@ export default function App() {
     () => Object.keys(loadSearchCacheMap()).length
   );
 
-  // Firebase Auth & Cloud Sync state
+  // Firebase Auth, Membership Plan & Cloud Sync state
   const [cloudUser, setCloudUser] = useState<CloudUserProfile | null>(null);
+  const [userPlan, setUserPlan] = useState<UserPlan>('free');
+  const [paymentConfig, setPaymentConfig] = useState<PaymentAdConfig>(
+    DEFAULT_PAYMENT_AD_CONFIG
+  );
   const [authReady, setAuthReady] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const isApplyingRemoteRef = useRef(false);
+
+  // Offline IndexedDB Vault Stats
+  const [vaultStats, setVaultStats] = useState<OfflineVaultStats>({
+    audioTrackCount: 0,
+    audioBytes: 0,
+    cachedLyricsCount: 0,
+    quotaBytes: null,
+    usageBytes: null,
+  });
+
+  // Unskippable Turkish Audio Ad Engine (Free tier, every 3 songs)
+  const [adState, setAdState] = useState<ActiveAdState | null>(null);
+  const adAudioRef = useRef<HTMLAudioElement | null>(null);
+  const songsSinceLastAdRef = useRef(0);
+  const pendingTrackAfterAdRef = useRef<{ track: Track; queueList?: Track[] } | null>(null);
+  const adFallbackTimerRef = useRef<number | null>(null);
 
   // Playback state
   const [queue, setQueue] = useState<Track[]>(SEED_TRACKS);
@@ -181,12 +221,18 @@ export default function App() {
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [settingsModalTab, setSettingsModalTab] = useState<SettingsModalTab>('theme');
   const [linkImportModalOpen, setLinkImportModalOpen] = useState(false);
+  const [proModalOpen, setProModalOpen] = useState(false);
+  const [adminModalOpen, setAdminModalOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const noticeTimerRef = useRef<number | null>(null);
   const pendingAutoplayRef = useRef(false);
+
+  const isAdActive = Boolean(adState?.active);
+  const isAdminUser = isAdminEmail(cloudUser?.email);
+  const isAdFreeUser = isUserAdFree(userPlan, cloudUser?.email);
 
   // Compute and apply dynamic CSS variables for Theme & UI Customizer
   const themeCssVars = useMemo(
@@ -223,14 +269,32 @@ export default function App() {
     setSettingsModalOpen(true);
   }, []);
 
+  const refreshVaultStats = useCallback(() => {
+    void getOfflineVaultStats().then((stats) => setVaultStats(stats));
+  }, []);
+
   // Subscribe to Firebase Auth state (mandatory login gate enforces authentication)
   useEffect(() => {
     const unsub = subscribeToAuthState((user) => {
       setCloudUser(user);
+      if (!user) {
+        setUserPlan('free');
+      } else if (isAdminEmail(user.email)) {
+        setUserPlan('pro');
+      }
       setAuthReady(true);
     });
     return () => unsub();
   }, []);
+
+  // Subscribe to Firestore Payment & Audio Ad Configuration when signed in
+  useEffect(() => {
+    if (!cloudUser?.uid) {
+      setPaymentConfig(DEFAULT_PAYMENT_AD_CONFIG);
+      return;
+    }
+    return subscribeToPaymentAdConfig((cfg) => setPaymentConfig(cfg));
+  }, [cloudUser?.uid]);
 
   // Subscribe to Firestore Cloud Sync when signed in
   const latestLocalSyncRef = useRef({
@@ -273,6 +337,9 @@ export default function App() {
       (remote) => {
         lastSyncErrorRef.current = null;
         isApplyingRemoteRef.current = true;
+        if (remote.plan) {
+          setUserPlan(isAdminEmail(cloudUser.email) ? 'pro' : remote.plan);
+        }
         if (remote.playlists.length > 0) {
           setPlaylists(remote.playlists);
           savePlaylists(remote.playlists);
@@ -292,17 +359,18 @@ export default function App() {
         }, 120);
       },
       () => {
-        // Initialize cloud document with current local state on first sign-in
+        // Initialize cloud document with current local state + profile on first sign-in
         void saveUserCloudSync(
           cloudUser.uid,
           latestLocalSyncRef.current,
-          handleCloudSyncError
+          handleCloudSyncError,
+          { email: cloudUser.email, displayName: cloudUser.displayName }
         );
       },
       handleCloudSyncError
     );
     return () => unsub();
-  }, [cloudUser?.uid, handleCloudSyncError]);
+  }, [cloudUser?.uid, cloudUser?.email, cloudUser?.displayName, handleCloudSyncError]);
 
   // Push local changes to Firestore when signed in
   useEffect(() => {
@@ -317,12 +385,15 @@ export default function App() {
           homeLayout,
           savedTracks: [...importedTracks, ...externalTracks],
         },
-        handleCloudSyncError
+        handleCloudSyncError,
+        { email: cloudUser.email, displayName: cloudUser.displayName }
       );
     }, 450);
     return () => window.clearTimeout(timer);
   }, [
     cloudUser?.uid,
+    cloudUser?.email,
+    cloudUser?.displayName,
     playlists,
     favoriteIdsList,
     themePrefs,
@@ -349,13 +420,28 @@ export default function App() {
 
   const handleSignOutCloud = useCallback(async () => {
     audioRef.current?.pause();
+    if (adAudioRef.current) {
+      adAudioRef.current.pause();
+      adAudioRef.current.currentTime = 0;
+    }
+    if (adFallbackTimerRef.current) {
+      window.clearTimeout(adFallbackTimerRef.current);
+      adFallbackTimerRef.current = null;
+    }
+    stopTurkishAdSpotSpeech();
+    pendingTrackAfterAdRef.current = null;
+    songsSinceLastAdRef.current = 0;
+    setAdState(null);
     setIsPlaying(false);
     setNowPlayingOpen(false);
     setSettingsModalOpen(false);
     setPlaylistModalOpen(false);
     setLinkImportModalOpen(false);
+    setProModalOpen(false);
+    setAdminModalOpen(false);
     await signOutFromCloud();
     setCloudUser(null);
+    setUserPlan('free');
     showNotice(t.noticeSignedOut);
   }, [showNotice, t]);
 
@@ -382,24 +468,28 @@ export default function App() {
     }
   }, [language, showNotice, t]);
 
-  // Hydrate persisted local audio blobs from IndexedDB on startup
+  // Hydrate persisted local audio blobs & storage metrics from IndexedDB on startup
   useEffect(() => {
     let active = true;
     const hydrate = async () => {
       const savedMeta = loadLocalTrackMeta();
-      if (savedMeta.length === 0) return;
-
-      const hydrated = await Promise.all(
-        savedMeta.map(async (track) => {
-          const url = await loadLocalAudioBlobUrl(track.id);
-          return url ? { ...track, audioUrl: url } : track;
-        })
-      );
+      if (savedMeta.length > 0) {
+        const hydrated = await Promise.all(
+          savedMeta.map(async (track) => {
+            const url = await loadLocalAudioBlobUrl(track.id);
+            return url ? { ...track, audioUrl: url } : track;
+          })
+        );
+        if (active) {
+          setLocalTracks(hydrated);
+        }
+      }
+      const stats = await getOfflineVaultStats();
       if (active) {
-        setLocalTracks(hydrated);
+        setVaultStats(stats);
       }
     };
-    hydrate();
+    void hydrate();
     return () => {
       active = false;
     };
@@ -504,12 +594,17 @@ export default function App() {
     }
   }, [currentTrack, isUsingYouTubeIframe, resolvePlayableAudioUrl]);
 
-  // Keep HTML5 audio volume & mute synced
+  // Keep HTML5 music & ad audio volume & mute synced
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.volume = playerPrefs.muted ? 0 : playerPrefs.volume;
-    audio.muted = playerPrefs.muted;
+    const vol = playerPrefs.muted ? 0 : playerPrefs.volume;
+    if (audioRef.current) {
+      audioRef.current.volume = vol;
+      audioRef.current.muted = playerPrefs.muted;
+    }
+    if (adAudioRef.current) {
+      adAudioRef.current.volume = vol;
+      adAudioRef.current.muted = playerPrefs.muted;
+    }
   }, [playerPrefs.volume, playerPrefs.muted]);
 
   const recordRecent = useCallback(
@@ -526,8 +621,139 @@ export default function App() {
     [cacheExternalTracks]
   );
 
+  const commitTrackPlayback = useCallback(
+    (track: Track, queueList?: Track[]) => {
+      if (queueList && queueList.length > 0) {
+        setQueue(queueList);
+      } else {
+        setQueue((prev) => (prev.some((tr) => tr.id === track.id) ? prev : [track, ...prev]));
+      }
+      setYtFallbackMode(false);
+      pendingAutoplayRef.current = true;
+      setCurrentTrack(track);
+      recordRecent(track);
+    },
+    [recordRecent]
+  );
+
+  const finishAudioAdAndResumePending = useCallback(() => {
+    if (adFallbackTimerRef.current) {
+      window.clearTimeout(adFallbackTimerRef.current);
+      adFallbackTimerRef.current = null;
+    }
+    if (adAudioRef.current) {
+      adAudioRef.current.pause();
+      adAudioRef.current.currentTime = 0;
+    }
+    stopTurkishAdSpotSpeech();
+    setAdState(null);
+
+    const pending = pendingTrackAfterAdRef.current;
+    pendingTrackAfterAdRef.current = null;
+    if (pending) {
+      commitTrackPlayback(pending.track, pending.queueList);
+    } else {
+      setIsPlaying(false);
+    }
+  }, [commitTrackPlayback]);
+
+  // If user becomes Pro/Admin while an ad is playing, immediately skip the ad & start their track
+  useEffect(() => {
+    if (isAdFreeUser && adState?.active) {
+      finishAudioAdAndResumePending();
+    }
+  }, [isAdFreeUser, adState?.active, finishAudioAdAndResumePending]);
+
+  const startAudioAdForPendingTrack = useCallback(
+    (nextTrack: Track, queueList?: Track[]) => {
+      audioRef.current?.pause();
+      pendingTrackAfterAdRef.current = { track: nextTrack, queueList };
+
+      const customUrl = paymentConfig.customAdAudioUrl?.trim() || '';
+      const isCustomAudio = /^https?:\/\//i.test(customUrl);
+      const srcUrl = isCustomAudio ? customUrl : generateBuiltInAdSpotWavUrl();
+
+      setAdState({
+        active: true,
+        title: t.adBannerLabel,
+        subtitle: t.adBannerSubtitle,
+        durationSec: DEFAULT_AD_SPOT_DURATION_SEC,
+        currentTimeSec: 0,
+        remainingSec: DEFAULT_AD_SPOT_DURATION_SEC,
+        isCustomAudio,
+      });
+      setIsPlaying(true);
+
+      const adEl = adAudioRef.current;
+      if (!adEl) {
+        finishAudioAdAndResumePending();
+        return;
+      }
+
+      adEl.volume = playerPrefs.muted ? 0 : playerPrefs.volume;
+      adEl.muted = playerPrefs.muted;
+      adEl.src = srcUrl;
+      adEl.load();
+
+      if (!isCustomAudio && !playerPrefs.muted) {
+        speakTurkishAdSpot(playerPrefs.volume);
+      }
+
+      adEl.play().catch(() => {
+        // Fallback safety: if autoplay or custom audio fails, finish smoothly so playback never stalls
+        if (adFallbackTimerRef.current) {
+          window.clearTimeout(adFallbackTimerRef.current);
+        }
+        adFallbackTimerRef.current = window.setTimeout(() => {
+          finishAudioAdAndResumePending();
+        }, 3500);
+      });
+    },
+    [
+      finishAudioAdAndResumePending,
+      paymentConfig.customAdAudioUrl,
+      playerPrefs.muted,
+      playerPrefs.volume,
+      t.adBannerLabel,
+      t.adBannerSubtitle,
+    ]
+  );
+
+  const requestTrackTransition = useCallback(
+    (nextTrack: Track, queueList?: Track[]) => {
+      if (isAdActive) return;
+
+      if (!isAdFreeUser) {
+        songsSinceLastAdRef.current += 1;
+        if (
+          shouldPlayAudioAd({
+            plan: userPlan,
+            email: cloudUser?.email,
+            songsSinceLastAd: songsSinceLastAdRef.current,
+          })
+        ) {
+          songsSinceLastAdRef.current = 0;
+          startAudioAdForPendingTrack(nextTrack, queueList);
+          return;
+        }
+      }
+
+      commitTrackPlayback(nextTrack, queueList);
+    },
+    [
+      cloudUser?.email,
+      commitTrackPlayback,
+      isAdActive,
+      isAdFreeUser,
+      startAudioAdForPendingTrack,
+      userPlan,
+    ]
+  );
+
   const playTrack = useCallback(
     (track: Track, queueList?: Track[]) => {
+      if (isAdActive) return;
+
       const audio = audioRef.current;
 
       if (currentTrack?.id === track.id) {
@@ -556,21 +782,37 @@ export default function App() {
         return;
       }
 
-      if (queueList && queueList.length > 0) {
-        setQueue(queueList);
-      } else {
-        setQueue((prev) => (prev.some((t) => t.id === track.id) ? prev : [track, ...prev]));
-      }
-
-      setYtFallbackMode(false);
-      pendingAutoplayRef.current = true;
-      setCurrentTrack(track);
-      recordRecent(track);
+      requestTrackTransition(track, queueList);
     },
-    [currentTrack?.id, isPlaying, recordRecent, resolvePlayableAudioUrl, showNotice, t, ytFallbackMode]
+    [
+      currentTrack?.id,
+      isAdActive,
+      isPlaying,
+      requestTrackTransition,
+      resolvePlayableAudioUrl,
+      showNotice,
+      t,
+      ytFallbackMode,
+    ]
   );
 
   const handleTogglePlay = useCallback(() => {
+    if (isAdActive) {
+      const adEl = adAudioRef.current;
+      if (!adEl) return;
+      if (adEl.paused) {
+        adEl
+          .play()
+          .then(() => setIsPlaying(true))
+          .catch(() => {});
+      } else {
+        adEl.pause();
+        stopTurkishAdSpotSpeech();
+        setIsPlaying(false);
+      }
+      return;
+    }
+
     if (!currentTrack) return;
 
     if (isUsingYouTubeIframe) {
@@ -599,50 +841,53 @@ export default function App() {
         .then(() => setIsPlaying(true))
         .catch(() => setIsPlaying(false));
     }
-  }, [currentTrack, isPlaying, isUsingYouTubeIframe, resolvePlayableAudioUrl, showNotice, t]);
+  }, [
+    currentTrack,
+    isAdActive,
+    isPlaying,
+    isUsingYouTubeIframe,
+    resolvePlayableAudioUrl,
+    showNotice,
+    t,
+  ]);
 
   const handleNext = useCallback(() => {
+    if (isAdActive) return;
     if (!currentTrack || queue.length === 0) return;
 
     if (playerPrefs.shuffle && queue.length > 1) {
-      const candidates = queue.filter((t) => t.id !== currentTrack.id);
+      const candidates = queue.filter((tr) => tr.id !== currentTrack.id);
       const nextTrack = candidates[Math.floor(Math.random() * candidates.length)];
       if (nextTrack) {
-        setYtFallbackMode(false);
-        pendingAutoplayRef.current = true;
-        setCurrentTrack(nextTrack);
-        recordRecent(nextTrack);
+        requestTrackTransition(nextTrack);
       }
       return;
     }
 
-    const idx = queue.findIndex((t) => t.id === currentTrack.id);
+    const idx = queue.findIndex((tr) => tr.id === currentTrack.id);
     if (idx === -1) {
-      setYtFallbackMode(false);
-      pendingAutoplayRef.current = true;
-      setCurrentTrack(queue[0]);
-      recordRecent(queue[0]);
+      requestTrackTransition(queue[0]);
       return;
     }
 
     if (idx + 1 < queue.length) {
-      const nextTrack = queue[idx + 1];
-      setYtFallbackMode(false);
-      pendingAutoplayRef.current = true;
-      setCurrentTrack(nextTrack);
-      recordRecent(nextTrack);
+      requestTrackTransition(queue[idx + 1]);
     } else if (playerPrefs.repeat === 'all') {
-      const nextTrack = queue[0];
-      setYtFallbackMode(false);
-      pendingAutoplayRef.current = true;
-      setCurrentTrack(nextTrack);
-      recordRecent(nextTrack);
+      requestTrackTransition(queue[0]);
     } else {
       setIsPlaying(false);
     }
-  }, [currentTrack, queue, playerPrefs.shuffle, playerPrefs.repeat, recordRecent]);
+  }, [
+    currentTrack,
+    isAdActive,
+    playerPrefs.repeat,
+    playerPrefs.shuffle,
+    queue,
+    requestTrackTransition,
+  ]);
 
   const handlePrev = useCallback(() => {
+    if (isAdActive) return;
     if (!currentTrack || queue.length === 0) return;
 
     if (currentTime > 3) {
@@ -655,19 +900,24 @@ export default function App() {
       return;
     }
 
-    const idx = queue.findIndex((t) => t.id === currentTrack.id);
+    const idx = queue.findIndex((tr) => tr.id === currentTrack.id);
     const prevIdx = idx > 0 ? idx - 1 : queue.length - 1;
     const prevTrack = queue[prevIdx];
     if (prevTrack) {
-      setYtFallbackMode(false);
-      pendingAutoplayRef.current = true;
-      setCurrentTrack(prevTrack);
-      recordRecent(prevTrack);
+      requestTrackTransition(prevTrack);
     }
-  }, [currentTrack, queue, currentTime, isUsingYouTubeIframe, recordRecent]);
+  }, [
+    currentTime,
+    currentTrack,
+    isAdActive,
+    isUsingYouTubeIframe,
+    queue,
+    requestTrackTransition,
+  ]);
 
   const handleSeek = useCallback(
     (time: number) => {
+      if (isAdActive) return;
       setCurrentTime(time);
       if (isUsingYouTubeIframe) {
         setYtSeekRequest({ time, nonce: Date.now() });
@@ -675,7 +925,7 @@ export default function App() {
         audioRef.current.currentTime = time;
       }
     },
-    [isUsingYouTubeIframe]
+    [isAdActive, isUsingYouTubeIframe]
   );
 
   // Sleep Timer countdown
@@ -989,6 +1239,7 @@ export default function App() {
       setSelectedPlaylistId(null);
       setLibraryInitialSubTab('local');
       setActiveTab('library');
+      refreshVaultStats();
 
       showNotice(
         created.length === 1
@@ -996,27 +1247,34 @@ export default function App() {
           : t.noticeUploadedMultiple(created.length)
       );
     },
-    [language, showNotice, t]
+    [language, refreshVaultStats, showNotice, t]
   );
 
   const handleDeleteLocalTrack = useCallback(
     (trackId: string) => {
-      const target = localTracks.find((t) => t.id === trackId);
+      const target = localTracks.find((tr) => tr.id === trackId);
       if (target?.audioUrl?.startsWith('blob:')) {
         URL.revokeObjectURL(target.audioUrl);
       }
-      deleteLocalAudioBlob(trackId);
+      void deleteLocalAudioBlob(trackId).then(() => refreshVaultStats());
 
       setLocalTracks((prev) => {
-        const next = prev.filter((t) => t.id !== trackId);
+        const next = prev.filter((tr) => tr.id !== trackId);
         saveLocalTrackMeta(next);
         return next;
       });
-      setQueue((prev) => prev.filter((t) => t.id !== trackId));
+      setQueue((prev) => prev.filter((tr) => tr.id !== trackId));
       showNotice(t.noticeRemovedLocal);
     },
-    [localTracks, showNotice, t]
+    [localTracks, refreshVaultStats, showNotice, t]
   );
+
+  const handleClearCachedLyrics = useCallback(() => {
+    void clearCachedLyricsDb().then(() => {
+      refreshVaultStats();
+      showNotice(t.noticeLyricsCacheCleared);
+    });
+  }, [refreshVaultStats, showNotice, t]);
 
   // Audio event handlers
   const handleTrackEnded = useCallback(() => {
@@ -1044,11 +1302,17 @@ export default function App() {
   // Mandatory Login Gate: block player, audio, and library until Firebase Auth user is signed in
   if (!authReady) {
     return (
-      <div className="h-dvh w-screen bg-[#070709] text-zinc-400 flex flex-col items-center justify-center gap-3">
-        <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-rose-500 to-rose-600 flex items-center justify-center shadow-lg shadow-rose-500/25">
-          <AudioLines className="w-5 h-5 text-white animate-pulse" />
-        </div>
-        <p className="text-xs font-medium tracking-wide">{t.loading}</p>
+      <div className="h-dvh w-screen bg-[#050508] text-zinc-400 flex flex-col items-center justify-center gap-3.5">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.92 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={NYXON_SPRING}
+        >
+          <NyxonLogo size="lg" />
+        </motion.div>
+        <p className="text-xs font-medium tracking-[0.18em] uppercase text-zinc-400">
+          {t.loading}
+        </p>
       </div>
     );
   }
@@ -1058,6 +1322,9 @@ export default function App() {
       <AuthGate
         onAuthenticated={(user, isNewSignUp) => {
           setCloudUser(user);
+          if (isAdminEmail(user.email)) {
+            setUserPlan('pro');
+          }
           showNotice(
             isNewSignUp
               ? t.authSignUpVerifyHint
@@ -1072,7 +1339,7 @@ export default function App() {
     <div
       data-density={themePrefs.layoutDensity}
       data-player-style={themePrefs.playerBarStyle}
-      className="h-dvh w-screen overflow-hidden flex flex-col bg-[#070709] text-zinc-100"
+      className="h-dvh w-screen overflow-hidden flex flex-col bg-[#050508] text-zinc-100"
     >
       {/* Hidden native audio & file input */}
       <audio
@@ -1102,20 +1369,76 @@ export default function App() {
         }}
       />
 
+      {/* Dedicated Unskippable Audio Ad Element */}
+      <audio
+        ref={adAudioRef}
+        onLoadedMetadata={() => {
+          const el = adAudioRef.current;
+          if (!el || !Number.isFinite(el.duration) || el.duration <= 0) return;
+          setAdState((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  durationSec: el.duration,
+                  remainingSec: Math.max(0, el.duration - el.currentTime),
+                }
+              : prev
+          );
+        }}
+        onTimeUpdate={() => {
+          const el = adAudioRef.current;
+          if (!el) return;
+          setAdState((prev) => {
+            if (!prev) return prev;
+            const dur =
+              Number.isFinite(el.duration) && el.duration > 0 ? el.duration : prev.durationSec;
+            return {
+              ...prev,
+              durationSec: dur,
+              currentTimeSec: el.currentTime,
+              remainingSec: Math.max(0, dur - el.currentTime),
+            };
+          });
+        }}
+        onEnded={() => finishAudioAdAndResumePending()}
+        onError={() => {
+          const el = adAudioRef.current;
+          if (adState?.isCustomAudio && el) {
+            // Custom MP3 failed — fall back to built-in Turkish NYXON spot once
+            const fallbackUrl = generateBuiltInAdSpotWavUrl();
+            setAdState((prev) =>
+              prev ? { ...prev, isCustomAudio: false, durationSec: DEFAULT_AD_SPOT_DURATION_SEC } : prev
+            );
+            el.src = fallbackUrl;
+            el.load();
+            if (!playerPrefs.muted) {
+              speakTurkishAdSpot(playerPrefs.volume);
+            }
+            el.play().catch(() => finishAudioAdAndResumePending());
+          } else {
+            finishAudioAdAndResumePending();
+          }
+        }}
+      />
+
       {/* YouTube IFrame Player API Bridge */}
       <YouTubePlayerBridge
         videoId={currentTrack?.youtubeVideoId}
-        active={isUsingYouTubeIframe}
-        isPlaying={isPlaying}
+        active={isUsingYouTubeIframe && !isAdActive}
+        isPlaying={isPlaying && !isAdActive}
         volume={playerPrefs.volume}
         muted={playerPrefs.muted}
         seekRequest={ytSeekRequest}
         showCompactVideo={appSettings.showCompactVideo}
         onTimeUpdate={(cur, dur) => {
-          setCurrentTime(cur);
-          if (dur > 0) setDuration(dur);
+          if (!isAdActive) {
+            setCurrentTime(cur);
+            if (dur > 0) setDuration(dur);
+          }
         }}
-        onStateChange={(playing) => setIsPlaying(playing)}
+        onStateChange={(playing) => {
+          if (!isAdActive) setIsPlaying(playing);
+        }}
         onEnded={handleTrackEnded}
         onFallbackUnavailable={() => {
           if (isPlaying) {
@@ -1150,6 +1473,7 @@ export default function App() {
           selectedPlaylistId={selectedPlaylistId}
           playlists={playlists}
           cloudUser={cloudUser}
+          userPlan={userPlan}
           isSigningIn={isSigningIn}
           onSelectTab={(tab) => {
             setActiveTab(tab);
@@ -1173,118 +1497,69 @@ export default function App() {
           onOpenLinkImport={() => setLinkImportModalOpen(true)}
           onOpenThemeCustomizer={() => openSettingsWithTab('theme')}
           onOpenSettings={() => openSettingsWithTab('api')}
+          onOpenProModal={() => setProModalOpen(true)}
+          onOpenAdminPanel={() => {
+            if (isAdminUser) setAdminModalOpen(true);
+          }}
           onSignInGoogle={handleSignInGoogle}
           onSignOutCloud={handleSignOutCloud}
         />
 
-        <main className="relative flex-1 min-w-0 h-full overflow-y-auto">
-          {/* Dynamic Liquid Glass Ambient Glow & Blurred Album Cover Backdrop */}
-          {themePrefs.ambientGlowEnabled && glowScale > 0 && (
-            <div
-              aria-hidden="true"
-              className="pointer-events-none fixed inset-0 overflow-hidden z-0 transition-opacity duration-500"
-              style={{ opacity: glowScale }}
-            >
-              <motion.div
-                key={`glow-primary-${currentTrack?.id || 'default'}`}
-                initial={{ opacity: 0.4, scale: 0.92 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.9, ease: 'easeOut' }}
-                className="absolute -top-32 left-1/4 w-[560px] h-[420px] rounded-full blur-[135px]"
-                style={{ background: ambientPalette.primary }}
-              />
-              <motion.div
-                key={`glow-secondary-${currentTrack?.id || 'default'}`}
-                initial={{ opacity: 0.35, scale: 0.92 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 1.1, ease: 'easeOut' }}
-                className="absolute top-24 right-10 w-[460px] h-[380px] rounded-full blur-[140px]"
-                style={{ background: ambientPalette.secondary }}
-              />
-            </div>
-          )}
+        {/* Seamless Full-Viewport Ambient Glow (single fixed radial layer, zero mid-screen seam) */}
+        {themePrefs.ambientGlowEnabled && glowScale > 0 && (
+          <motion.div
+            key={`ambient-glow-${currentTrack?.id || 'default'}`}
+            aria-hidden="true"
+            initial={{ opacity: 0.45 * glowScale }}
+            animate={{ opacity: glowScale }}
+            transition={{ duration: 0.85, ease: 'easeOut' }}
+            className="fixed inset-0 h-dvh w-screen pointer-events-none z-0"
+            style={{
+              backgroundImage: `radial-gradient(ellipse 85% 58% at 22% -4%, ${ambientPalette.primary} 0%, transparent 72%), radial-gradient(ellipse 75% 52% at 86% 14%, ${ambientPalette.secondary} 0%, transparent 74%)`,
+            }}
+          />
+        )}
 
-          {currentTrack?.coverUrl && themePrefs.ambientGlowEnabled && (
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute top-0 left-0 right-0 h-[380px] overflow-hidden z-0"
-              style={{ opacity: glowScale }}
-            >
-              <AnimatePresence mode="sync">
-                <motion.img
-                  key={currentTrack.coverUrl}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 0.24 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.65 }}
-                  src={currentTrack.coverUrl}
-                  alt=""
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover scale-125 blur-[96px] saturate-150"
-                />
-              </AnimatePresence>
-              <div className="absolute inset-0 bg-gradient-to-b from-[#070709]/35 via-[#070709]/75 to-[#070709]" />
-            </div>
-          )}
+        <main className="relative z-10 flex-1 min-w-0 h-full overflow-y-auto">
+          <ProgressiveBlur direction="top" className="hidden md:block" />
 
-          {/* Sleek Mobile / Android Top Bar with Safe-Area Padding */}
-          <div className="md:hidden relative z-10 flex items-center justify-between gap-2 px-4 pt-[max(0.625rem,env(safe-area-inset-top))] pb-2.5 border-b border-white/[0.08] liquid-glass-subtle">
-            <div className="flex items-center gap-2 shrink-0">
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-rose-500 to-rose-600 flex items-center justify-center shadow-sm">
-                <AudioLines className="w-3.5 h-3.5 text-white" />
-              </div>
-              <span className="font-display text-sm font-semibold text-white whitespace-nowrap">
-                Cadence
-              </span>
-            </div>
+          {/* Clean Ultra-Compact Mobile Top Bar: NYXON logo + max 2-3 icon buttons */}
+          <header className="md:hidden sticky top-0 z-20 flex items-center justify-between gap-3 px-4 pt-[max(0.55rem,env(safe-area-inset-top))] pb-2.5 border-b border-white/[0.07] bg-[#050508]/75 backdrop-blur-2xl">
+            <NyxonLogo size="xs" showWordmark />
 
             <div className="flex items-center gap-1.5 shrink-0">
-              <PWAInstallButton compact />
               <button
                 type="button"
-                onClick={() =>
-                  cloudUser ? openSettingsWithTab('api') : handleSignInGoogle()
-                }
-                aria-label={cloudUser ? t.mobileCloudSyncAria : t.sidebarSignInGoogle}
-                className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                  cloudUser
-                    ? 'text-rose-400 bg-rose-500/15'
-                    : 'text-zinc-300 hover:text-white hover:bg-white/[0.08]'
+                onClick={() => setProModalOpen(true)}
+                aria-label={t.sidebarNyxonPro}
+                className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
+                  isAdFreeUser
+                    ? 'text-amber-300 bg-amber-400/12 border border-amber-400/25'
+                    : 'text-violet-300 bg-violet-500/14 border border-violet-400/25'
                 }`}
               >
-                {cloudUser ? <Cloud className="w-4 h-4" /> : <LogIn className="w-4 h-4" />}
+                <Crown className="w-4 h-4" />
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedPlaylistId(null);
-                  setLibraryInitialSubTab('local');
-                  setActiveTab('library');
-                  fileInputRef.current?.click();
-                }}
-                aria-label={t.mobileUploadAria}
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-zinc-300 hover:text-white hover:bg-white/[0.08] shrink-0"
-              >
-                <Upload className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => openSettingsWithTab('theme')}
-                aria-label={t.mobileThemeAria}
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-rose-400 hover:text-white hover:bg-white/[0.08] shrink-0"
-              >
-                <Palette className="w-4 h-4" />
-              </button>
+              {isAdminUser && (
+                <button
+                  type="button"
+                  onClick={() => setAdminModalOpen(true)}
+                  aria-label={t.sidebarAdminPanel}
+                  className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 text-cyan-300 bg-cyan-500/14 border border-cyan-400/30"
+                >
+                  <Shield className="w-4 h-4" />
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => openSettingsWithTab('api')}
                 aria-label={t.mobileSettingsAria}
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-zinc-300 hover:text-white hover:bg-white/[0.08] shrink-0"
+                className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-200 hover:text-white bg-white/[0.05] border border-white/[0.09] shrink-0 transition-colors"
               >
                 <Settings className="w-4 h-4" />
               </button>
             </div>
-          </div>
+          </header>
 
           {/* Active Page View with Spring Transitions */}
           <div className="relative z-10">
@@ -1376,6 +1651,7 @@ export default function App() {
                     currentTrack={currentTrack}
                     isPlaying={isPlaying}
                     favoriteIds={favoriteIds}
+                    vaultStats={vaultStats}
                     onSelectPlaylist={setSelectedPlaylistId}
                     onPlayTrack={playTrack}
                     onToggleFavorite={handleToggleFavorite}
@@ -1391,11 +1667,13 @@ export default function App() {
                     onTriggerUpload={() => fileInputRef.current?.click()}
                     onUploadFiles={handleUploadFiles}
                     onDeleteLocalTrack={handleDeleteLocalTrack}
+                    onClearCachedLyrics={handleClearCachedLyrics}
                   />
                 </motion.div>
               )}
             </AnimatePresence>
           </div>
+          <ProgressiveBlur direction="bottom" />
         </main>
       </div>
 
@@ -1427,6 +1705,7 @@ export default function App() {
         repeat={playerPrefs.repeat}
         isFavorite={currentTrack ? favoriteIds.has(currentTrack.id) : false}
         playerBarStyle={themePrefs.playerBarStyle}
+        adState={adState}
         onTogglePlay={handleTogglePlay}
         onPrev={handlePrev}
         onNext={handleNext}
@@ -1447,6 +1726,7 @@ export default function App() {
           setNowPlayingTab(tab);
           setNowPlayingOpen(true);
         }}
+        onOpenProModal={() => setProModalOpen(true)}
       />
 
       {/* Sleek Mobile / Android Glassmorphic Bottom Navigation Bar */}
@@ -1476,6 +1756,7 @@ export default function App() {
         customLyricsMap={customLyricsMap}
         sleepTimerMinutes={sleepTimerMinutes}
         sleepRemainingSec={sleepRemainingSec}
+        adState={adState}
         onSelectSleepTimer={handleSelectSleepTimer}
         onClose={() => setNowPlayingOpen(false)}
         onTabChange={setNowPlayingTab}
@@ -1494,6 +1775,7 @@ export default function App() {
         onPlayQueueTrack={(track) => playTrack(track)}
         onRemoveFromQueue={handleRemoveFromQueue}
         onSaveCustomLyrics={handleSaveCustomLyrics}
+        onLyricsCached={refreshVaultStats}
       />
 
       {/* Create Playlist Modal */}
@@ -1538,6 +1820,29 @@ export default function App() {
         onImportAndPlay={handleImportAndPlay}
         onImportPlaylist={handleImportPlaylist}
       />
+
+      {/* NYXON Pro Membership & Promo Code Redemption Modal */}
+      <NyxonProModal
+        open={proModalOpen}
+        cloudUser={cloudUser}
+        userPlan={userPlan}
+        paymentConfig={paymentConfig}
+        onClose={() => setProModalOpen(false)}
+        onProUnlocked={() => {
+          setUserPlan('pro');
+          showNotice(t.noticeProUnlocked);
+        }}
+      />
+
+      {/* Admin Panel Modal (STRICTLY only for meraqaras@gmail.com) */}
+      {isAdminUser && (
+        <AdminPanelModal
+          open={adminModalOpen}
+          adminEmail={cloudUser?.email}
+          paymentConfig={paymentConfig}
+          onClose={() => setAdminModalOpen(false)}
+        />
+      )}
     </div>
   );
 }

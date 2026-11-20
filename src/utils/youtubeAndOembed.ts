@@ -9,6 +9,7 @@ export interface ParsedMusicLink {
   youtubeVideoId?: string;
   playlistId?: string;
   spotifyId?: string;
+  spotifyEntityType?: 'track' | 'playlist' | 'album';
 }
 
 export interface EffectiveApiKeyInfo {
@@ -175,6 +176,20 @@ export function parseMusicLink(rawUrl: string): ParsedMusicLink | null {
     return null;
   }
 
+  // Spotify URI format: spotify:playlist:<id>, spotify:track:<id>, spotify:album:<id>
+  const spotifyUriMatch = trimmed.match(/^spotify:(track|playlist|album):([A-Za-z0-9]+)$/i);
+  if (spotifyUriMatch) {
+    const type = spotifyUriMatch[1].toLowerCase() as 'track' | 'playlist' | 'album';
+    const id = spotifyUriMatch[2];
+    return {
+      provider: 'spotify',
+      kind: type === 'track' ? 'track' : 'playlist',
+      spotifyId: id,
+      spotifyEntityType: type,
+      canonicalUrl: `https://open.spotify.com/${type}/${id}`,
+    };
+  }
+
   // Spotify Track / Playlist / Album URL
   if (host === 'open.spotify.com' || host === 'spotify.link') {
     const segs = parsed.pathname
@@ -190,6 +205,7 @@ export function parseMusicLink(rawUrl: string): ParsedMusicLink | null {
         provider: 'spotify',
         kind: type === 'track' ? 'track' : 'playlist',
         spotifyId: id,
+        spotifyEntityType: type,
         canonicalUrl: `https://open.spotify.com/${type}/${id}`,
       };
     }
@@ -203,28 +219,85 @@ export interface ParsedTrackLine {
   title: string;
 }
 
+function splitCsvRow(line: string): string[] {
+  const fields: string[] = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (ch === ',' && !inQuotes) {
+      fields.push(current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  fields.push(current.trim());
+  return fields;
+}
+
 /**
- * Parses CSV or plain-text multi-track lists ("Artist - Song Title", "1. Artist - Song Title", or "Artist, Song Title").
+ * Parses Exportify/standard CSV or plain-text multi-track lists
+ * ("Artist - Song Title", "1. Artist - Song Title", "Artist, Song Title", or Exportify CSV headers).
  */
 export function parseTracklistText(rawText: string): ParsedTrackLine[] {
   if (!rawText || !rawText.trim()) return [];
 
-  const lines = rawText.split(/\r?\n/);
+  const lines = rawText.replace(/^\uFEFF/, '').split(/\r?\n/);
   const parsed: ParsedTrackLine[] = [];
 
+  let csvHeaderColumns: { artistIdx: number; titleIdx: number } | null = null;
+
   for (const rawLine of lines) {
-    const line = rawLine
-      .trim()
+    const trimmedRaw = rawLine.trim();
+    if (!trimmedRaw || trimmedRaw.startsWith('#')) continue;
+
+    // Detect Exportify or multi-column CSV header row on first encounter
+    if (!csvHeaderColumns && trimmedRaw.includes(',')) {
+      const cols = splitCsvRow(trimmedRaw).map((c) => c.toLowerCase().trim());
+      const titleIdx = cols.findIndex((c) =>
+        /^(track name|song name|title|track|song|parça|şarkı)$/.test(c)
+      );
+      const artistIdx = cols.findIndex((c) =>
+        /^(artist name\(s\)|artist names?|artists?|sanatçı)$/.test(c)
+      );
+      if (titleIdx !== -1 && artistIdx !== -1) {
+        csvHeaderColumns = { artistIdx, titleIdx };
+        continue;
+      }
+      if (/^(artist|track|title|song)(\s*,\s*(artist|track|title|song|album))+$/i.test(trimmedRaw)) {
+        continue;
+      }
+    }
+
+    // If an Exportify/named CSV header was detected, parse rows strictly by column index
+    if (csvHeaderColumns && trimmedRaw.includes(',')) {
+      const cols = splitCsvRow(trimmedRaw);
+      const title = (cols[csvHeaderColumns.titleIdx] || '').trim();
+      const artist = (cols[csvHeaderColumns.artistIdx] || '').trim();
+      if (title) {
+        parsed.push({
+          artist: artist || 'Various Artists',
+          title,
+        });
+      }
+      continue;
+    }
+
+    const line = trimmedRaw
       .replace(/^\d+[\.\)]\s*/, '') // Strip leading numbering like "1. " or "01) "
       .replace(/^[-*•]\s*/, '')
       .trim();
 
     if (!line || line.startsWith('#')) continue;
-
-    // Skip common CSV headers
-    if (/^(artist|track|title|song)(\s*,\s*(artist|track|title|song|album))+$/i.test(line)) {
-      continue;
-    }
 
     // 1. Check "Artist - Song Title" (or en-dash / em-dash)
     const dashParts = line.split(/\s+[-–—]\s+/);
@@ -241,14 +314,16 @@ export function parseTracklistText(rawText: string): ParsedTrackLine[] {
       }
     }
 
-    // 2. Check CSV "Artist, Song Title"
-    const csvParts = line.split(/\s*,\s*/);
-    if (csvParts.length >= 2) {
-      const artist = csvParts[0].replace(/^["']|["']$/g, '').trim();
-      const title = csvParts[1].replace(/^["']|["']$/g, '').trim();
-      if (artist && title) {
-        parsed.push({ artist, title });
-        continue;
+    // 2. Check CSV "Artist, Song Title" (respecting quotes)
+    if (line.includes(',')) {
+      const csvParts = splitCsvRow(line);
+      if (csvParts.length >= 2) {
+        const artist = csvParts[0].replace(/^["']|["']$/g, '').trim();
+        const title = csvParts[1].replace(/^["']|["']$/g, '').trim();
+        if (artist && title) {
+          parsed.push({ artist, title });
+          continue;
+        }
       }
     }
 
@@ -831,77 +906,332 @@ export async function resolveLinkAndImport(
   return { track, oembed, parsed };
 }
 
+export const MAX_PLAYLIST_IMPORT_TRACKS = 50;
+
 export interface SpotifyPlaylistEmbedResult {
   playlistTitle: string;
   coverUrl?: string;
   trackLines: ParsedTrackLine[];
-  usedFallbackNotice?: string;
+  fetchedRealTracks: boolean;
+  failedToFetchTracks?: boolean;
+}
+
+export interface SpotifyEmbedExtractionResult {
+  title?: string;
+  coverUrl?: string;
+  tracks: ParsedTrackLine[];
+}
+
+function decodeHtmlEntities(input: string): string {
+  return input
+    .replace(/\u00a0/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&#x27;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .trim();
+}
+
+function extractBalancedJsonArray(source: string, openBracketIdx: number): string | null {
+  if (openBracketIdx < 0 || source[openBracketIdx] !== '[') return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = openBracketIdx; i < source.length; i++) {
+    const ch = source[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === '[') {
+      depth++;
+    } else if (ch === ']') {
+      depth--;
+      if (depth === 0) {
+        return source.slice(openBracketIdx, i + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
+interface RawSpotifyEmbedTrack {
+  title?: string;
+  name?: string;
+  subtitle?: string;
+  artists?: Array<{ name?: string }>;
+}
+
+function normalizeEmbedTrackItems(rawList: unknown): ParsedTrackLine[] {
+  if (!Array.isArray(rawList)) return [];
+
+  const tracks: ParsedTrackLine[] = [];
+  for (const rawItem of rawList) {
+    if (!rawItem || typeof rawItem !== 'object') continue;
+    const item = rawItem as RawSpotifyEmbedTrack;
+    const title = decodeHtmlEntities(String(item.title || item.name || ''));
+    if (!title) continue;
+
+    const artistFromSub = item.subtitle ? decodeHtmlEntities(String(item.subtitle)) : '';
+    const artistFromArray = Array.isArray(item.artists)
+      ? item.artists
+          .map((a) => (a?.name ? decodeHtmlEntities(String(a.name)) : ''))
+          .filter(Boolean)
+          .join(', ')
+      : '';
+
+    const artist = artistFromSub || artistFromArray || 'Various Artists';
+    tracks.push({ artist, title });
+  }
+
+  return tracks;
+}
+
+function findTrackListInJson(node: unknown, depth = 0): unknown[] | null {
+  if (!node || typeof node !== 'object' || depth > 10) return null;
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const found = findTrackListInJson(item, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  const record = node as Record<string, unknown>;
+  if (Array.isArray(record.trackList) && record.trackList.length > 0) {
+    return record.trackList;
+  }
+
+  for (const val of Object.values(record)) {
+    if (val && typeof val === 'object') {
+      const found = findTrackListInJson(val, depth + 1);
+      if (found) return found;
+    }
+  }
+  return null;
 }
 
 /**
- * Resolves a Spotify playlist/album URL using Spotify's public oEmbed for title & cover,
- * attempts public embed parsing, and provides a clear fallback tracklist if cross-origin embed HTML is restricted.
+ * Pure parser for Spotify embed HTML (`https://open.spotify.com/embed/playlist/<ID>`).
+ * Supports both `<script id="__NEXT_DATA__">` JSON and inline `"trackList": [...]` JSON payloads.
+ */
+export function extractTracksFromSpotifyEmbedHtml(html: string): SpotifyEmbedExtractionResult {
+  if (!html || !html.trim()) {
+    return { tracks: [] };
+  }
+
+  let extractedTitle: string | undefined;
+  let extractedCoverUrl: string | undefined;
+
+  // 1. Primary path: parse <script id="__NEXT_DATA__" ...> JSON
+  const nextDataMatch = html.match(
+    /<script\b[^>]*\bid=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i
+  );
+  if (nextDataMatch?.[1]) {
+    try {
+      const json = JSON.parse(nextDataMatch[1]);
+      const entity =
+        json?.props?.pageProps?.state?.data?.entity ||
+        json?.props?.pageProps?.data?.entity;
+
+      if (typeof entity?.name === 'string' && entity.name.trim()) {
+        extractedTitle = decodeHtmlEntities(entity.name);
+      } else if (typeof entity?.title === 'string' && entity.title.trim()) {
+        extractedTitle = decodeHtmlEntities(entity.title);
+      }
+
+      const coverCandidate =
+        entity?.coverArt?.sources?.[0]?.url ||
+        entity?.visualIdentity?.image?.[0]?.url;
+      if (typeof coverCandidate === 'string' && coverCandidate.startsWith('http')) {
+        extractedCoverUrl = coverCandidate;
+      }
+
+      const rawTrackList = Array.isArray(entity?.trackList)
+        ? entity.trackList
+        : findTrackListInJson(json);
+      const tracks = normalizeEmbedTrackItems(rawTrackList);
+      if (tracks.length > 0) {
+        return {
+          title: extractedTitle,
+          coverUrl: extractedCoverUrl,
+          tracks,
+        };
+      }
+    } catch {
+      // Fall through to inline JSON scanning
+    }
+  }
+
+  // 2. Fallback path: scan HTML for inline `"trackList": [...]` JSON
+  const trackListKeyRegex = /"trackList"\s*:\s*\[/g;
+  let match: RegExpExecArray | null;
+  while ((match = trackListKeyRegex.exec(html)) !== null) {
+    const bracketIndex = html.indexOf('[', match.index);
+    const arrayJson = extractBalancedJsonArray(html, bracketIndex);
+    if (!arrayJson) continue;
+    try {
+      const parsedArray = JSON.parse(arrayJson);
+      const tracks = normalizeEmbedTrackItems(parsedArray);
+      if (tracks.length > 0) {
+        if (!extractedTitle) {
+          const ogTitle = html.match(
+            /<meta\b[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']/i
+          );
+          if (ogTitle?.[1]) {
+            extractedTitle = decodeHtmlEntities(ogTitle[1]);
+          }
+        }
+        return {
+          title: extractedTitle,
+          coverUrl: extractedCoverUrl,
+          tracks,
+        };
+      }
+    } catch {
+      // Try next match if malformed
+    }
+  }
+
+  return {
+    title: extractedTitle,
+    coverUrl: extractedCoverUrl,
+    tracks: [],
+  };
+}
+
+function buildCorsProxyUrls(embedUrl: string): string[] {
+  const encoded = encodeURIComponent(embedUrl);
+  return [
+    `https://api.allorigins.win/raw?url=${encoded}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encoded}`,
+    `https://api.allorigins.win/get?url=${encoded}`,
+    `https://api.cors.lol/?url=${encoded}`,
+  ];
+}
+
+async function fetchTextWithTimeout(
+  url: string,
+  timeoutMs: number,
+  parentSignal?: AbortSignal
+): Promise<string | null> {
+  if (parentSignal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError');
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const onParentAbort = () => controller.abort();
+  parentSignal?.addEventListener('abort', onParentAbort, { once: true });
+
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) return null;
+    const text = await res.text();
+    if (!text) return null;
+
+    // Handle JSON-wrapped CORS proxy responses (e.g. { contents: "<html>..." })
+    if (text.trimStart().startsWith('{')) {
+      try {
+        const maybeJson = JSON.parse(text) as { contents?: unknown };
+        if (typeof maybeJson.contents === 'string') {
+          return maybeJson.contents;
+        }
+      } catch {
+        // Not JSON wrapper; return raw text
+      }
+    }
+    return text;
+  } catch (err) {
+    if (parentSignal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError');
+    }
+    if ((err as Error)?.name === 'AbortError') {
+      // Per-proxy timeout expired; allow fallback to next proxy
+      return null;
+    }
+    return null;
+  } finally {
+    clearTimeout(timer);
+    parentSignal?.removeEventListener('abort', onParentAbort);
+  }
+}
+
+/**
+ * Resolves a public Spotify playlist/album URL by fetching its `/embed/playlist/<ID>`
+ * page through a free CORS proxy fallback chain and parsing real tracks from JSON.
+ * Never inserts fake sample tracks if the playlist is private or proxies fail.
  */
 export async function resolveSpotifyPlaylistUrl(
   rawUrl: string,
   signal?: AbortSignal
 ): Promise<SpotifyPlaylistEmbedResult> {
   const parsed = parseMusicLink(rawUrl);
-  if (!parsed || (parsed.provider !== 'spotify' && parsed.kind !== 'playlist')) {
-    throw new Error('Please enter a valid Spotify playlist/album URL or YouTube playlist URL.');
+  if (!parsed || parsed.provider !== 'spotify' || !parsed.spotifyId) {
+    throw new Error('Please enter a valid Spotify playlist/album URL.');
   }
 
-  const oembed = await fetchPublicOembed(parsed, signal);
-  const playlistTitle =
-    oembed.title && oembed.title !== 'Spotify Track' ? oembed.title : 'Imported Spotify Mix';
+  let oembedTitle: string | undefined;
+  let oembedThumb: string | undefined;
+  try {
+    const oembed = await fetchPublicOembed(parsed, signal);
+    if (
+      oembed.title &&
+      oembed.title !== 'Spotify Track' &&
+      oembed.title !== 'Imported Playlist' &&
+      oembed.title !== 'Imported Track'
+    ) {
+      oembedTitle = oembed.title;
+    }
+    oembedThumb = oembed.thumbnailUrl;
+  } catch (err) {
+    if ((err as Error)?.name === 'AbortError') throw err;
+  }
 
-  // Attempt to read public Spotify embed tracklist via CORS-friendly allorigins if available
-  if (parsed.spotifyId) {
-    try {
-      const embedUrl = `https://open.spotify.com/embed/playlist/${parsed.spotifyId}`;
-      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(embedUrl)}`;
-      const res = await fetch(proxyUrl, { signal });
-      if (res.ok) {
-        const html = await res.text();
-        const nextDataMatch = html.match(
-          /<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/
-        );
-        if (nextDataMatch?.[1]) {
-          const json = JSON.parse(nextDataMatch[1]);
-          const trackList =
-            json?.props?.pageProps?.state?.data?.entity?.trackList;
-          if (Array.isArray(trackList) && trackList.length > 0) {
-            const lines: ParsedTrackLine[] = trackList
-              .slice(0, 20)
-              .map((item: { title?: string; subtitle?: string }) => ({
-                artist: (item.subtitle || 'Artist').replace(/\u00a0/g, ' ').trim(),
-                title: (item.title || 'Track').trim(),
-              }))
-              .filter((t: ParsedTrackLine) => Boolean(t.title));
+  const embedType = parsed.spotifyEntityType === 'album' ? 'album' : 'playlist';
+  const embedUrl = `https://open.spotify.com/embed/${embedType}/${parsed.spotifyId}`;
+  const proxyUrls = buildCorsProxyUrls(embedUrl);
 
-            if (lines.length > 0) {
-              return {
-                playlistTitle,
-                coverUrl: oembed.thumbnailUrl,
-                trackLines: lines,
-              };
-            }
-          }
-        }
-      }
-    } catch (err) {
-      if ((err as Error)?.name === 'AbortError') throw err;
+  for (const proxyUrl of proxyUrls) {
+    if (signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError');
+    }
+
+    const html = await fetchTextWithTimeout(proxyUrl, 6500, signal);
+    if (!html) continue;
+
+    const extracted = extractTracksFromSpotifyEmbedHtml(html);
+    if (extracted.tracks.length > 0) {
+      return {
+        playlistTitle: extracted.title || oembedTitle || 'Spotify Playlist',
+        coverUrl: extracted.coverUrl || oembedThumb,
+        trackLines: extracted.tracks,
+        fetchedRealTracks: true,
+      };
     }
   }
 
-  // Fallback: populate tracklist with curated multi-track matches & show clear fallback notice
-  const fallbackLines = parseTracklistText(SAMPLE_PLAYLIST_IMPORT.tracklistText);
+  // Private playlist, empty embed, or all CORS proxies failed: NEVER insert fake sample songs.
   return {
-    playlistTitle,
-    coverUrl: oembed.thumbnailUrl,
-    trackLines: fallbackLines,
-    usedFallbackNotice:
-      'Loaded playlist title & artwork via public oEmbed. Spotify restricts cross-origin tracklist scraping in the browser, so we pre-filled a starter tracklist below—feel free to edit or paste any "Artist - Song Title" lines before importing.',
+    playlistTitle: oembedTitle || '',
+    coverUrl: oembedThumb,
+    trackLines: [],
+    fetchedRealTracks: false,
+    failedToFetchTracks: true,
   };
 }
 
@@ -915,7 +1245,7 @@ export async function matchTracklistToYouTube(
   signal?: AbortSignal
 ): Promise<Track[]> {
   const matched: Track[] = [];
-  const clipped = lines.slice(0, 25);
+  const clipped = lines.slice(0, MAX_PLAYLIST_IMPORT_TRACKS);
 
   for (let i = 0; i < clipped.length; i++) {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');

@@ -4,6 +4,7 @@ import type {
   AppSettings,
   CachedSearchEntry,
   HomeWidgetConfig,
+  OfflineVaultStats,
   PlayerPrefs,
   Playlist,
   ThemePrefs,
@@ -272,21 +273,36 @@ export function clearSearchCache(): void {
   safeWriteJson(STORAGE_KEYS.YT_SEARCH_CACHE, {});
 }
 
-// Lightweight IndexedDB audio blob cache so local MP3/WAV/OGG files remain playable after reload
-const DB_NAME = 'cadence_local_audio_v1';
-const STORE_NAME = 'audio_blobs';
+// =============================================================================
+// NYXON Persistent Offline Audio & Lyrics Vault (IndexedDB)
+// Stores local MP3/WAV/OGG audio blobs and cached synced lyrics permanently
+// across reloads, while preserving compatibility with existing audio blobs.
+// =============================================================================
+const VAULT_DB_NAME = 'cadence_local_audio_v1';
+const VAULT_DB_VERSION = 2;
+const AUDIO_STORE_NAME = 'audio_blobs';
+const LYRICS_STORE_NAME = 'lyrics_cache';
 
-function openAudioDb(): Promise<IDBDatabase> {
+export interface CachedLyricsRecord {
+  key: string;
+  lyrics: string;
+  updatedAt: number;
+}
+
+function openVaultDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === 'undefined') {
       reject(new Error('IndexedDB unavailable'));
       return;
     }
-    const req = indexedDB.open(DB_NAME, 1);
+    const req = indexedDB.open(VAULT_DB_NAME, VAULT_DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME);
+      if (!db.objectStoreNames.contains(AUDIO_STORE_NAME)) {
+        db.createObjectStore(AUDIO_STORE_NAME);
+      }
+      if (!db.objectStoreNames.contains(LYRICS_STORE_NAME)) {
+        db.createObjectStore(LYRICS_STORE_NAME);
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -296,10 +312,10 @@ function openAudioDb(): Promise<IDBDatabase> {
 
 export async function storeLocalAudioBlob(trackId: string, blob: Blob): Promise<void> {
   try {
-    const db = await openAudioDb();
+    const db = await openVaultDb();
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readwrite');
-      tx.objectStore(STORE_NAME).put(blob, trackId);
+      const tx = db.transaction(AUDIO_STORE_NAME, 'readwrite');
+      tx.objectStore(AUDIO_STORE_NAME).put(blob, trackId);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
@@ -311,10 +327,10 @@ export async function storeLocalAudioBlob(trackId: string, blob: Blob): Promise<
 
 export async function loadLocalAudioBlobUrl(trackId: string): Promise<string | undefined> {
   try {
-    const db = await openAudioDb();
+    const db = await openVaultDb();
     const blob = await new Promise<Blob | undefined>((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readonly');
-      const req = tx.objectStore(STORE_NAME).get(trackId);
+      const tx = db.transaction(AUDIO_STORE_NAME, 'readonly');
+      const req = tx.objectStore(AUDIO_STORE_NAME).get(trackId);
       req.onsuccess = () => resolve(req.result as Blob | undefined);
       req.onerror = () => reject(req.error);
     });
@@ -330,10 +346,10 @@ export async function loadLocalAudioBlobUrl(trackId: string): Promise<string | u
 
 export async function deleteLocalAudioBlob(trackId: string): Promise<void> {
   try {
-    const db = await openAudioDb();
+    const db = await openVaultDb();
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readwrite');
-      tx.objectStore(STORE_NAME).delete(trackId);
+      const tx = db.transaction(AUDIO_STORE_NAME, 'readwrite');
+      tx.objectStore(AUDIO_STORE_NAME).delete(trackId);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
@@ -341,4 +357,129 @@ export async function deleteLocalAudioBlob(trackId: string): Promise<void> {
   } catch {
     // Ignore cleanup errors
   }
+}
+
+export function buildLyricsCacheKey(trackId: string, artist?: string, title?: string): string {
+  if (artist && title) {
+    return `${artist.trim().toLowerCase()}::${title.trim().toLowerCase()}`;
+  }
+  return trackId;
+}
+
+export async function saveCachedLyricsToDb(key: string, lyrics: string): Promise<void> {
+  if (!key || !lyrics.trim()) return;
+  try {
+    const db = await openVaultDb();
+    const record: CachedLyricsRecord = {
+      key,
+      lyrics,
+      updatedAt: Date.now(),
+    };
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(LYRICS_STORE_NAME, 'readwrite');
+      tx.objectStore(LYRICS_STORE_NAME).put(record, key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  } catch {
+    // Ignore gracefully when IndexedDB unavailable
+  }
+}
+
+export async function loadCachedLyricsFromDb(key: string): Promise<string | null> {
+  if (!key) return null;
+  try {
+    const db = await openVaultDb();
+    const record = await new Promise<CachedLyricsRecord | string | undefined>((resolve, reject) => {
+      const tx = db.transaction(LYRICS_STORE_NAME, 'readonly');
+      const req = tx.objectStore(LYRICS_STORE_NAME).get(key);
+      req.onsuccess = () => resolve(req.result as CachedLyricsRecord | string | undefined);
+      req.onerror = () => reject(req.error);
+    });
+    db.close();
+    if (typeof record === 'string') return record;
+    if (record && typeof record.lyrics === 'string') return record.lyrics;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearCachedLyricsDb(): Promise<void> {
+  try {
+    const db = await openVaultDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(LYRICS_STORE_NAME, 'readwrite');
+      tx.objectStore(LYRICS_STORE_NAME).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  } catch {
+    // Ignore cleanup errors
+  }
+}
+
+export async function getOfflineVaultStats(): Promise<OfflineVaultStats> {
+  let audioTrackCount = 0;
+  let audioBytes = 0;
+  let cachedLyricsCount = 0;
+  let quotaBytes: number | null = null;
+  let usageBytes: number | null = null;
+
+  try {
+    const db = await openVaultDb();
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction([AUDIO_STORE_NAME, LYRICS_STORE_NAME], 'readonly');
+      const audioStore = tx.objectStore(AUDIO_STORE_NAME);
+      const lyricsStore = tx.objectStore(LYRICS_STORE_NAME);
+
+      const audioCursorReq = audioStore.openCursor();
+      audioCursorReq.onsuccess = () => {
+        const cursor = audioCursorReq.result;
+        if (cursor) {
+          audioTrackCount += 1;
+          const val = cursor.value;
+          if (val instanceof Blob) {
+            audioBytes += val.size;
+          }
+          cursor.continue();
+        }
+      };
+
+      const lyricsCountReq = lyricsStore.count();
+      lyricsCountReq.onsuccess = () => {
+        cachedLyricsCount = lyricsCountReq.result || 0;
+      };
+
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+    db.close();
+  } catch {
+    // Ignore when IndexedDB unavailable
+  }
+
+  try {
+    if (
+      typeof navigator !== 'undefined' &&
+      navigator.storage &&
+      typeof navigator.storage.estimate === 'function'
+    ) {
+      const estimate = await navigator.storage.estimate();
+      if (typeof estimate.quota === 'number') quotaBytes = estimate.quota;
+      if (typeof estimate.usage === 'number') usageBytes = estimate.usage;
+    }
+  } catch {
+    // Ignore unsupported estimate API
+  }
+
+  return {
+    audioTrackCount,
+    audioBytes,
+    cachedLyricsCount,
+    quotaBytes,
+    usageBytes,
+  };
 }

@@ -34,7 +34,7 @@ export function updateMediaSessionMetadata(
       navigator.mediaSession.metadata = new MediaMetadata({
         title: track.title,
         artist: track.artist,
-        album: track.album || 'Cadence',
+        album: track.album || 'NYXON',
         artwork: [
           { src: artworkUrl, sizes: '192x192', type: 'image/png' },
           { src: artworkUrl, sizes: '512x512', type: 'image/png' },

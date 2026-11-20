@@ -1,6 +1,7 @@
 import { Home, Library, Link2, Palette, Search } from 'lucide-react';
 import type { NavTab } from '../types/music';
 import { useI18n } from '../utils/I18nContext';
+import { AnimatedTabIndicator } from './MotionPrimitives';
 
 interface MobileBottomNavProps {
   activeTab: NavTab;
@@ -26,7 +27,7 @@ export function MobileBottomNav({
   return (
     <nav
       aria-label={t.navMobileAria}
-      className="md:hidden relative z-30 shrink-0 liquid-glass border-t border-white/[0.1] px-2 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))]"
+      className="md:hidden relative z-30 shrink-0 liquid-glass border-t border-white/[0.12] px-2 py-1.5 pb-[max(0.45rem,env(safe-area-inset-bottom))]"
     >
       <div className="max-w-md mx-auto grid grid-cols-5 items-center gap-1">
         {navItems.map((item) => {
@@ -38,14 +39,18 @@ export function MobileBottomNav({
               type="button"
               onClick={() => onSelectTab(item.id)}
               aria-current={active ? 'page' : undefined}
-              className={`flex flex-col items-center justify-center gap-1 py-1.5 rounded-xl text-[11px] font-medium transition-colors ${
-                active
-                  ? 'text-white bg-white/[0.11] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.16)]'
-                  : 'text-zinc-400 hover:text-zinc-200'
+              className={`relative flex flex-col items-center justify-center gap-1 py-1.5 rounded-xl text-[11px] font-medium transition-colors active:scale-95 ${
+                active ? 'text-white' : 'text-zinc-400'
               }`}
             >
-              <Icon className={`w-4 h-4 ${active ? 'text-rose-400' : ''}`} />
-              <span>{item.label}</span>
+              {active && (
+                <AnimatedTabIndicator
+                  layoutId="mobile-nav-pill"
+                  className="bg-white/[0.11] rounded-xl border border-white/[0.1] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.16)]"
+                />
+              )}
+              <Icon className={`w-4 h-4 relative z-10 ${active ? 'text-rose-400' : ''}`} />
+              <span className="relative z-10">{item.label}</span>
             </button>
           );
         })}
@@ -53,7 +58,7 @@ export function MobileBottomNav({
         <button
           type="button"
           onClick={onOpenLinkImport}
-          className="flex flex-col items-center justify-center gap-1 py-1.5 rounded-xl text-[11px] font-medium text-zinc-400 hover:text-zinc-200 transition-colors"
+          className="flex flex-col items-center justify-center gap-1 py-1.5 rounded-xl text-[11px] font-medium text-zinc-400 active:scale-95 transition-transform"
         >
           <Link2 className="w-4 h-4 text-rose-400" />
           <span>{t.navImportShort}</span>
@@ -62,7 +67,7 @@ export function MobileBottomNav({
         <button
           type="button"
           onClick={onOpenThemeCustomizer}
-          className="flex flex-col items-center justify-center gap-1 py-1.5 rounded-xl text-[11px] font-medium text-zinc-400 hover:text-zinc-200 transition-colors"
+          className="flex flex-col items-center justify-center gap-1 py-1.5 rounded-xl text-[11px] font-medium text-zinc-400 active:scale-95 transition-transform"
         >
           <Palette className="w-4 h-4 text-rose-400" />
           <span>{t.navThemeShort}</span>

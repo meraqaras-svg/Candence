@@ -34,6 +34,7 @@ import {
   toggleWidgetVisibility,
 } from '../utils/layoutManager';
 import { CoverArt } from './CoverArt';
+import { NYXON_SPRING, SpotlightCard } from './MotionPrimitives';
 import { TrackActionMenu } from './TrackActionMenu';
 
 interface HomeViewProps {
@@ -140,53 +141,57 @@ export function HomeView({
                 <motion.div
                   key={track.id}
                   whileHover={{ y: -2, scale: 1.01 }}
-                  transition={{ type: 'spring', stiffness: 420, damping: 28 }}
-                  className={`group flex items-center gap-3 ${
-                    isCompact ? 'p-2' : 'p-2.5'
-                  } rounded-xl transition-colors ${
-                    active
-                      ? 'liquid-glass ring-1 ring-rose-500/35'
-                      : 'liquid-glass-subtle hover:bg-white/[0.08]'
-                  }`}
+                  whileTap={{ scale: 0.99 }}
+                  transition={NYXON_SPRING}
                 >
-                  <button
-                    type="button"
-                    onClick={() => onPlayTrack(track, recentTracks)}
-                    aria-label={
-                      active && isPlaying ? t.pauseAria(track.title) : t.playAria(track.title)
-                    }
-                    className="relative flex items-center gap-3 flex-1 min-w-0 text-left focus-visible:outline-2 focus-visible:outline-rose-500 rounded-lg"
-                  >
-                    <CoverArt
-                      src={track.coverUrl}
-                      alt={track.title}
-                      size="sm"
-                      isPlaying={active && isPlaying}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium text-white truncate">{track.title}</div>
-                      <div className="text-xs text-zinc-400 truncate">{track.artist}</div>
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => onPlayTrack(track, recentTracks)}
-                    aria-label={
-                      active && isPlaying ? t.pauseAria(track.title) : t.playAria(track.title)
-                    }
-                    className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-opacity ${
+                  <SpotlightCard
+                    className={`group flex items-center gap-3 ${
+                      isCompact ? 'p-2' : 'p-2.5'
+                    } rounded-xl transition-colors ${
                       active
-                        ? 'bg-rose-500 text-white opacity-100'
-                        : 'bg-white text-zinc-950 opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
+                        ? 'liquid-glass ring-1 ring-rose-500/35'
+                        : 'liquid-glass-subtle hover:bg-white/[0.08]'
                     }`}
                   >
-                    {active && isPlaying ? (
-                      <Pause className="w-3.5 h-3.5 fill-current" />
-                    ) : (
-                      <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
-                    )}
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => onPlayTrack(track, recentTracks)}
+                      aria-label={
+                        active && isPlaying ? t.pauseAria(track.title) : t.playAria(track.title)
+                      }
+                      className="relative flex items-center gap-3 flex-1 min-w-0 text-left focus-visible:outline-2 focus-visible:outline-rose-500 rounded-lg"
+                    >
+                      <CoverArt
+                        src={track.coverUrl}
+                        alt={track.title}
+                        size="sm"
+                        isPlaying={active && isPlaying}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-white truncate">{track.title}</div>
+                        <div className="text-xs text-zinc-400 truncate">{track.artist}</div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onPlayTrack(track, recentTracks)}
+                      aria-label={
+                        active && isPlaying ? t.pauseAria(track.title) : t.playAria(track.title)
+                      }
+                      className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-opacity ${
+                        active
+                          ? 'bg-rose-500 text-white opacity-100'
+                          : 'bg-white text-zinc-950 opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
+                      }`}
+                    >
+                      {active && isPlaying ? (
+                        <Pause className="w-3.5 h-3.5 fill-current" />
+                      ) : (
+                        <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                      )}
+                    </button>
+                  </SpotlightCard>
                 </motion.div>
               );
             })}
@@ -208,91 +213,96 @@ export function HomeView({
                 <motion.div
                   key={track.id}
                   whileHover={{ y: -3, scale: 1.012 }}
-                  transition={{ type: 'spring', stiffness: 380, damping: 26 }}
-                  className={`group rounded-2xl ${
-                    isCompact ? 'p-2.5' : 'p-3.5'
-                  } transition-colors flex flex-col ${
-                    active
-                      ? 'liquid-glass ring-1 ring-rose-500/35'
-                      : 'liquid-glass-subtle hover:bg-white/[0.07]'
-                  }`}
+                  whileTap={{ scale: 0.99 }}
+                  transition={NYXON_SPRING}
+                  className="h-full"
                 >
-                  <div className="relative mb-2.5 sm:mb-3">
-                    <button
-                      type="button"
-                      onClick={() => onPlayTrack(track, quickPicks)}
-                      aria-label={
-                        active && isPlaying ? t.pauseAria(track.title) : t.playAria(track.title)
-                      }
-                      className="block w-full rounded-xl overflow-hidden focus-visible:outline-2 focus-visible:outline-rose-500"
-                    >
-                      <CoverArt
-                        src={track.coverUrl}
-                        alt={track.title}
-                        size="lg"
-                        isPlaying={active && isPlaying}
-                        className="group-hover:scale-[1.03] transition-transform duration-300"
-                      />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => onPlayTrack(track, quickPicks)}
-                      aria-label={
-                        active && isPlaying ? t.pauseAria(track.title) : t.playAria(track.title)
-                      }
-                      className={`absolute bottom-2.5 right-2.5 w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center shadow-xl transition-all duration-200 ${
-                        active
-                          ? 'bg-rose-500 text-white opacity-100 translate-y-0'
-                          : 'bg-white text-zinc-950 opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 focus-visible:opacity-100'
-                      }`}
-                    >
-                      {active && isPlaying ? (
-                        <Pause className="w-4 h-4 fill-current" />
-                      ) : (
-                        <Play className="w-4 h-4 fill-current ml-0.5" />
-                      )}
-                    </button>
-                  </div>
-
-                  <div className="space-y-1">
-                    <button
-                      type="button"
-                      onClick={() => onPlayTrack(track, quickPicks)}
-                      className="text-sm font-semibold text-white hover:underline truncate block text-left w-full"
-                    >
-                      {track.title}
-                    </button>
-
-                    <div className="flex items-center justify-between gap-1.5">
-                      <div className="text-xs text-zinc-400 truncate min-w-0">
-                        {track.artist} · <span className="tabular-nums">{formatTime(track.duration)}</span>
-                      </div>
-
-                      <div className="flex items-center shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => onToggleFavorite(track.id)}
-                          aria-label={
-                            liked ? t.favRemoveAria(track.title) : t.favAddAria(track.title)
-                          }
-                          className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
-                            liked ? 'text-rose-400' : 'text-zinc-500 hover:text-white'
-                          }`}
-                        >
-                          <Heart className={`w-3.5 h-3.5 ${liked ? 'fill-current' : ''}`} />
-                        </button>
-                        <TrackActionMenu
-                          track={track}
-                          playlists={playlists}
-                          onAddToPlaylist={onAddToPlaylist}
-                          onAddToQueue={onAddToQueue}
-                          onOpenLyrics={onOpenLyrics}
-                          onRequestNewPlaylist={(tr) => onOpenNewPlaylist(tr)}
+                  <SpotlightCard
+                    className={`group h-full rounded-2xl ${
+                      isCompact ? 'p-2.5' : 'p-3.5'
+                    } transition-colors flex flex-col ${
+                      active
+                        ? 'liquid-glass ring-1 ring-rose-500/35'
+                        : 'liquid-glass-subtle hover:bg-white/[0.07]'
+                    }`}
+                  >
+                    <div className="relative mb-2.5 sm:mb-3">
+                      <button
+                        type="button"
+                        onClick={() => onPlayTrack(track, quickPicks)}
+                        aria-label={
+                          active && isPlaying ? t.pauseAria(track.title) : t.playAria(track.title)
+                        }
+                        className="block w-full rounded-xl overflow-hidden focus-visible:outline-2 focus-visible:outline-rose-500"
+                      >
+                        <CoverArt
+                          src={track.coverUrl}
+                          alt={track.title}
+                          size="lg"
+                          isPlaying={active && isPlaying}
+                          className="group-hover:scale-[1.03] transition-transform duration-300"
                         />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => onPlayTrack(track, quickPicks)}
+                        aria-label={
+                          active && isPlaying ? t.pauseAria(track.title) : t.playAria(track.title)
+                        }
+                        className={`absolute bottom-2.5 right-2.5 w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center shadow-xl transition-all duration-200 ${
+                          active
+                            ? 'bg-rose-500 text-white opacity-100 translate-y-0'
+                            : 'bg-white text-zinc-950 opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 focus-visible:opacity-100'
+                        }`}
+                      >
+                        {active && isPlaying ? (
+                          <Pause className="w-4 h-4 fill-current" />
+                        ) : (
+                          <Play className="w-4 h-4 fill-current ml-0.5" />
+                        )}
+                      </button>
+                    </div>
+
+                    <div className="space-y-1">
+                      <button
+                        type="button"
+                        onClick={() => onPlayTrack(track, quickPicks)}
+                        className="text-sm font-semibold text-white hover:underline truncate block text-left w-full"
+                      >
+                        {track.title}
+                      </button>
+
+                      <div className="flex items-center justify-between gap-1.5">
+                        <div className="text-xs text-zinc-400 truncate min-w-0">
+                          {track.artist} · <span className="tabular-nums">{formatTime(track.duration)}</span>
+                        </div>
+
+                        <div className="flex items-center shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => onToggleFavorite(track.id)}
+                            aria-label={
+                              liked ? t.favRemoveAria(track.title) : t.favAddAria(track.title)
+                            }
+                            className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
+                              liked ? 'text-rose-400' : 'text-zinc-500 hover:text-white'
+                            }`}
+                          >
+                            <Heart className={`w-3.5 h-3.5 ${liked ? 'fill-current' : ''}`} />
+                          </button>
+                          <TrackActionMenu
+                            track={track}
+                            playlists={playlists}
+                            onAddToPlaylist={onAddToPlaylist}
+                            onAddToQueue={onAddToQueue}
+                            onOpenLyrics={onOpenLyrics}
+                            onRequestNewPlaylist={(tr) => onOpenNewPlaylist(tr)}
+                          />
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  </SpotlightCard>
                 </motion.div>
               );
             })}
@@ -313,29 +323,38 @@ export function HomeView({
                 .find((tr) => Boolean(tr?.coverUrl));
               const cover = pl.coverUrl || firstTrack?.coverUrl;
               return (
-                <motion.button
+                <motion.div
                   key={pl.id}
-                  type="button"
                   whileHover={{ y: -3, scale: 1.012 }}
-                  transition={{ type: 'spring', stiffness: 380, damping: 26 }}
-                  onClick={() => onOpenPlaylist(pl.id)}
-                  className={`group text-left rounded-2xl liquid-glass-subtle hover:bg-white/[0.07] ${
-                    isCompact ? 'p-2.5' : 'p-3.5'
-                  } transition-colors flex flex-col focus-visible:outline-2 focus-visible:outline-rose-500`}
+                  whileTap={{ scale: 0.99 }}
+                  transition={NYXON_SPRING}
+                  className="h-full"
                 >
-                  <div className="mb-3 overflow-hidden rounded-xl">
-                    <CoverArt
-                      src={cover}
-                      alt={pl.name}
-                      size="lg"
-                      className="group-hover:scale-[1.03] transition-transform duration-300"
-                    />
-                  </div>
-                  <div className="text-sm font-semibold text-white truncate w-full">{pl.name}</div>
-                  <div className="mt-0.5 text-xs text-zinc-400 truncate w-full">
-                    {t.songsCount(pl.trackIds.length)} · {pl.description}
-                  </div>
-                </motion.button>
+                  <SpotlightCard
+                    className={`group h-full rounded-2xl liquid-glass-subtle hover:bg-white/[0.07] ${
+                      isCompact ? 'p-2.5' : 'p-3.5'
+                    } transition-colors`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onOpenPlaylist(pl.id)}
+                      className="w-full text-left flex flex-col focus-visible:outline-2 focus-visible:outline-rose-500 rounded-xl"
+                    >
+                      <div className="mb-3 overflow-hidden rounded-xl w-full">
+                        <CoverArt
+                          src={cover}
+                          alt={pl.name}
+                          size="lg"
+                          className="group-hover:scale-[1.03] transition-transform duration-300"
+                        />
+                      </div>
+                      <div className="text-sm font-semibold text-white truncate w-full">{pl.name}</div>
+                      <div className="mt-0.5 text-xs text-zinc-400 truncate w-full">
+                        {t.songsCount(pl.trackIds.length)} · {pl.description}
+                      </div>
+                    </button>
+                  </SpotlightCard>
+                </motion.div>
               );
             })}
 
@@ -359,67 +378,85 @@ export function HomeView({
     <div
       data-density={layoutDensity}
       className={`px-4 sm:px-8 ${
-        isCompact ? 'pt-4 pb-8 space-y-6' : 'pt-6 pb-12 space-y-8'
+        isCompact
+          ? 'pt-3 pb-6 space-y-5 sm:pt-4 sm:pb-8 sm:space-y-6'
+          : 'pt-3.5 pb-8 space-y-5 sm:pt-6 sm:pb-12 sm:space-y-8'
       } max-w-[1280px] mx-auto`}
     >
-      {/* Ultra-Clean Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white text-balance">
+      {/* Ultra-Clean Breathable Header (single compact row on mobile so cards appear immediately above the fold) */}
+      <div className="flex items-center justify-between gap-3 sm:gap-4">
+        <h1 className="text-xl sm:text-3xl font-bold tracking-tight text-white text-balance truncate">
           {greeting}
         </h1>
 
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
           {!isEditing ? (
             <>
-              <button
-                type="button"
-                onClick={onOpenLinkImport}
-                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-200 hover:text-white transition-colors whitespace-nowrap shrink-0 backdrop-blur-xl"
-              >
-                <Link2 className="w-3.5 h-3.5 text-rose-400" />
-                <span>{t.actionLinkImport}</span>
-              </button>
-              {onOpenThemeCustomizer && (
-                <button
-                  type="button"
-                  onClick={onOpenThemeCustomizer}
-                  className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold liquid-glass-subtle hover:bg-white/[0.14] text-white transition-colors whitespace-nowrap shrink-0"
-                >
-                  <Palette className="w-3.5 h-3.5 text-rose-400" />
-                  <span>{t.actionCustomizeTheme}</span>
-                </button>
-              )}
+              {/* Mobile: single sleek compact customize icon right beside greeting */}
               <button
                 type="button"
                 onClick={enterEditMode}
-                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold liquid-glass-subtle hover:bg-white/[0.14] text-white transition-colors whitespace-nowrap shrink-0"
+                aria-label={t.homeCustomizeButton}
+                title={t.homeCustomizeButton}
+                className="sm:hidden w-9 h-9 rounded-xl flex items-center justify-center liquid-glass-subtle text-zinc-200 hover:text-white transition-colors shrink-0"
               >
-                <SlidersHorizontal className="w-3.5 h-3.5" />
-                <span>{t.homeCustomizeButton}</span>
+                <SlidersHorizontal className="w-4 h-4" />
               </button>
+
+              {/* Desktop / Tablet: full inline action buttons */}
+              <div className="hidden sm:flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onOpenLinkImport}
+                  className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-200 hover:text-white transition-colors whitespace-nowrap shrink-0 backdrop-blur-xl"
+                >
+                  <Link2 className="w-3.5 h-3.5 text-rose-400" />
+                  <span>{t.actionLinkImport}</span>
+                </button>
+                {onOpenThemeCustomizer && (
+                  <button
+                    type="button"
+                    onClick={onOpenThemeCustomizer}
+                    className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold liquid-glass-subtle hover:bg-white/[0.14] text-white transition-colors whitespace-nowrap shrink-0"
+                  >
+                    <Palette className="w-3.5 h-3.5 text-rose-400" />
+                    <span>{t.actionCustomizeTheme}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={enterEditMode}
+                  className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold liquid-glass-subtle hover:bg-white/[0.14] text-white transition-colors whitespace-nowrap shrink-0"
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                  <span>{t.homeCustomizeButton}</span>
+                </button>
+              </div>
             </>
           ) : (
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               <button
                 type="button"
                 onClick={handleReset}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium text-zinc-300 hover:text-white liquid-glass-subtle hover:bg-white/[0.1] transition-colors whitespace-nowrap shrink-0"
+                aria-label={t.reset}
+                className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-xl text-xs font-medium text-zinc-300 hover:text-white liquid-glass-subtle hover:bg-white/[0.1] transition-colors whitespace-nowrap shrink-0"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
-                <span>{t.reset}</span>
+                <span className="hidden sm:inline">{t.reset}</span>
               </button>
               <button
                 type="button"
                 onClick={handleCancel}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium text-zinc-300 hover:text-white liquid-glass-subtle hover:bg-white/[0.1] transition-colors whitespace-nowrap shrink-0"
+                aria-label={t.cancel}
+                className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-xl text-xs font-medium text-zinc-300 hover:text-white liquid-glass-subtle hover:bg-white/[0.1] transition-colors whitespace-nowrap shrink-0"
               >
                 <X className="w-3.5 h-3.5" />
-                <span>{t.cancel}</span>
+                <span className="hidden sm:inline">{t.cancel}</span>
               </button>
               <button
                 type="button"
                 onClick={handleSave}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-rose-500 hover:bg-rose-400 text-white transition-colors whitespace-nowrap shrink-0"
+                className="inline-flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-xl text-xs font-semibold bg-rose-500 hover:bg-rose-400 text-white transition-colors whitespace-nowrap shrink-0"
               >
                 <Check className="w-3.5 h-3.5" />
                 <span>{t.homeSaveLayout}</span>

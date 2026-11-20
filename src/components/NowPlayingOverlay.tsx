@@ -17,7 +17,13 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import type { NowPlayingTab, RepeatMode, SleepTimerMinutes, Track } from '../types/music';
+import type {
+  ActiveAdState,
+  NowPlayingTab,
+  RepeatMode,
+  SleepTimerMinutes,
+  Track,
+} from '../types/music';
 import { formatTime } from '../utils/formatters';
 import { useI18n } from '../utils/I18nContext';
 import { fetchFreeLyrics } from '../utils/itunesApi';
@@ -27,7 +33,13 @@ import {
   parseLyrics,
 } from '../utils/lyricsParser';
 import { getAmbientPaletteForTrack } from '../utils/ambientColor';
+import {
+  buildLyricsCacheKey,
+  loadCachedLyricsFromDb,
+  saveCachedLyricsToDb,
+} from '../utils/storage';
 import { CoverArt } from './CoverArt';
+import { AnimatedTabIndicator, NYXON_SPRING } from './MotionPrimitives';
 
 interface NowPlayingOverlayProps {
   open: boolean;
@@ -43,6 +55,7 @@ interface NowPlayingOverlayProps {
   customLyricsMap: Record<string, string>;
   sleepTimerMinutes: SleepTimerMinutes;
   sleepRemainingSec: number | null;
+  adState?: ActiveAdState | null;
   onSelectSleepTimer: (minutes: SleepTimerMinutes) => void;
   onClose: () => void;
   onTabChange: (tab: NowPlayingTab) => void;
@@ -56,6 +69,7 @@ interface NowPlayingOverlayProps {
   onPlayQueueTrack: (track: Track) => void;
   onRemoveFromQueue: (trackId: string) => void;
   onSaveCustomLyrics: (trackId: string, lyrics: string) => void;
+  onLyricsCached?: () => void;
 }
 
 const SLEEP_OPTIONS: SleepTimerMinutes[] = [0, 15, 30, 60];
@@ -74,6 +88,7 @@ export function NowPlayingOverlay({
   customLyricsMap,
   sleepTimerMinutes,
   sleepRemainingSec,
+  adState = null,
   onSelectSleepTimer,
   onClose,
   onTabChange,
@@ -87,8 +102,10 @@ export function NowPlayingOverlay({
   onPlayQueueTrack,
   onRemoveFromQueue,
   onSaveCustomLyrics,
+  onLyricsCached,
 }: NowPlayingOverlayProps) {
   const { language, t } = useI18n();
+  const isAdActive = Boolean(adState?.active);
   const [fetchedLyrics, setFetchedLyrics] = useState<Record<string, string | null>>({});
   const [loadingLyrics, setLoadingLyrics] = useState(false);
   const [isEditingLyrics, setIsEditingLyrics] = useState(false);
@@ -121,33 +138,56 @@ export function NowPlayingOverlay({
     setIsEditingLyrics(false);
   }, [currentTrack?.id]);
 
-  // Fetch free synced lyrics from LRCLIB when opening Lyrics tab
+  // Check IndexedDB offline lyrics cache first, then fetch free synced lyrics from LRCLIB
   useEffect(() => {
     if (!open || activeTab !== 'lyrics' || !currentTrack) return;
     const hasCustom = Boolean(customLyricsMap[currentTrack.id]);
     const hasBundled = Boolean(currentTrack.lyrics);
     if (hasCustom || hasBundled || currentTrack.id in fetchedLyrics) return;
-    if (currentTrack.source === 'local') return;
 
     const controller = new AbortController();
+    const cacheKey = buildLyricsCacheKey(currentTrack.id, currentTrack.artist, currentTrack.title);
     setLoadingLyrics(true);
 
-    fetchFreeLyrics(currentTrack.artist, currentTrack.title, controller.signal)
-      .then((text) => {
-        if (!controller.signal.aborted) {
-          setFetchedLyrics((prev) => ({ ...prev, [currentTrack.id]: text }));
+    void (async () => {
+      try {
+        const cached = await loadCachedLyricsFromDb(cacheKey);
+        if (controller.signal.aborted) return;
+        if (cached) {
+          setFetchedLyrics((prev) => ({ ...prev, [currentTrack.id]: cached }));
           setLoadingLyrics(false);
+          return;
         }
-      })
-      .catch(() => {
+
+        if (currentTrack.source === 'local') {
+          setFetchedLyrics((prev) => ({ ...prev, [currentTrack.id]: null }));
+          setLoadingLyrics(false);
+          return;
+        }
+
+        const text = await fetchFreeLyrics(
+          currentTrack.artist,
+          currentTrack.title,
+          controller.signal
+        );
+        if (controller.signal.aborted) return;
+        setFetchedLyrics((prev) => ({ ...prev, [currentTrack.id]: text }));
+        setLoadingLyrics(false);
+
+        if (text) {
+          await saveCachedLyricsToDb(cacheKey, text);
+          onLyricsCached?.();
+        }
+      } catch {
         if (!controller.signal.aborted) {
           setFetchedLyrics((prev) => ({ ...prev, [currentTrack.id]: null }));
           setLoadingLyrics(false);
         }
-      });
+      }
+    })();
 
     return () => controller.abort();
-  }, [open, activeTab, currentTrack, customLyricsMap, fetchedLyrics]);
+  }, [open, activeTab, currentTrack, customLyricsMap, fetchedLyrics, onLyricsCached]);
 
   const rawLyrics = currentTrack
     ? customLyricsMap[currentTrack.id] ??
@@ -189,6 +229,10 @@ export function NowPlayingOverlay({
     e.preventDefault();
     if (!currentTrack) return;
     onSaveCustomLyrics(currentTrack.id, lyricsDraft);
+    const cacheKey = buildLyricsCacheKey(currentTrack.id, currentTrack.artist, currentTrack.title);
+    if (lyricsDraft.trim()) {
+      void saveCachedLyricsToDb(cacheKey, lyricsDraft.trim()).then(() => onLyricsCached?.());
+    }
     setIsEditingLyrics(false);
   };
 
@@ -204,8 +248,8 @@ export function NowPlayingOverlay({
           initial={{ opacity: 0, y: 40, scale: 0.985 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 36, scale: 0.985 }}
-          transition={{ type: 'spring', stiffness: 360, damping: 32 }}
-          className="fixed inset-0 z-[95] bg-[#070709] text-white flex flex-col overflow-hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
+          transition={NYXON_SPRING}
+          className="fixed inset-0 z-[95] bg-[#050508] text-white flex flex-col overflow-hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
         >
           {/* Dynamic Apple Music-style blurred album artwork & color-shifting ambient glow */}
           <div aria-hidden="true" className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -287,26 +331,38 @@ export function NowPlayingOverlay({
                   type="button"
                   aria-selected={activeTab === 'up-next'}
                   onClick={() => onTabChange('up-next')}
-                  className={`px-3.5 sm:px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
+                  className={`relative px-3.5 sm:px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
                     activeTab === 'up-next'
-                      ? 'bg-white text-zinc-950 shadow-sm'
+                      ? 'text-zinc-950'
                       : 'text-zinc-300 hover:text-white'
                   }`}
                 >
-                  {t.npTabUpNext}
+                  {activeTab === 'up-next' && (
+                    <AnimatedTabIndicator
+                      layoutId="np-tab-pill"
+                      className="rounded-lg bg-white shadow-sm"
+                    />
+                  )}
+                  <span className="relative z-10">{t.npTabUpNext}</span>
                 </button>
                 <button
                   role="tab"
                   type="button"
                   aria-selected={activeTab === 'lyrics'}
                   onClick={() => onTabChange('lyrics')}
-                  className={`px-3.5 sm:px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
+                  className={`relative px-3.5 sm:px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
                     activeTab === 'lyrics'
-                      ? 'bg-white text-zinc-950 shadow-sm'
+                      ? 'text-zinc-950'
                       : 'text-zinc-300 hover:text-white'
                   }`}
                 >
-                  {t.npTabLyrics}
+                  {activeTab === 'lyrics' && (
+                    <AnimatedTabIndicator
+                      layoutId="np-tab-pill"
+                      className="rounded-lg bg-white shadow-sm"
+                    />
+                  )}
+                  <span className="relative z-10">{t.npTabLyrics}</span>
                 </button>
               </div>
 
@@ -420,16 +476,29 @@ export function NowPlayingOverlay({
                   <input
                     type="range"
                     min={0}
-                    max={effectiveDuration || 1}
+                    max={isAdActive ? adState?.durationSec || 1 : effectiveDuration || 1}
                     step={0.1}
-                    value={Math.min(currentTime, effectiveDuration || 1)}
-                    onChange={(e) => onSeek(Number(e.target.value))}
+                    disabled={isAdActive}
+                    value={
+                      isAdActive
+                        ? Math.min(adState?.currentTimeSec || 0, adState?.durationSec || 1)
+                        : Math.min(currentTime, effectiveDuration || 1)
+                    }
+                    onChange={(e) => {
+                      if (!isAdActive) onSeek(Number(e.target.value));
+                    }}
                     aria-label={t.playerSeekAria}
-                    className="w-full h-1.5 accent-white cursor-pointer bg-white/[0.18] rounded-full"
+                    className={`w-full h-1.5 accent-white bg-white/[0.18] rounded-full ${
+                      isAdActive ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
+                    }`}
                   />
                   <div className="flex items-center justify-between text-xs text-zinc-400 font-mono-tabular">
-                    <span>{formatTime(currentTime)}</span>
-                    <span>{formatTime(effectiveDuration)}</span>
+                    <span>
+                      {formatTime(isAdActive ? adState?.currentTimeSec || 0 : currentTime)}
+                    </span>
+                    <span>
+                      {formatTime(isAdActive ? adState?.durationSec || 0 : effectiveDuration)}
+                    </span>
                   </div>
                 </div>
 
@@ -437,9 +506,10 @@ export function NowPlayingOverlay({
                 <div className="w-full max-w-xs sm:max-w-sm mt-4 flex items-center justify-between">
                   <button
                     type="button"
+                    disabled={isAdActive}
                     onClick={onToggleShuffle}
                     aria-label={shuffle ? t.playerDisableShuffle : t.playerEnableShuffle}
-                    className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
+                    className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors disabled:opacity-30 disabled:pointer-events-none ${
                       shuffle ? 'text-rose-400' : 'text-zinc-400 hover:text-white'
                     }`}
                   >
@@ -448,9 +518,10 @@ export function NowPlayingOverlay({
 
                   <button
                     type="button"
+                    disabled={isAdActive}
                     onClick={onPrev}
                     aria-label={t.playerPrevTrack}
-                    className="w-10 h-10 rounded-full flex items-center justify-center text-white hover:bg-white/[0.1] transition-colors"
+                    className="w-10 h-10 rounded-full flex items-center justify-center text-white hover:bg-white/[0.1] disabled:opacity-30 disabled:pointer-events-none transition-colors"
                   >
                     <SkipBack className="w-5 h-5 fill-current" />
                   </button>
@@ -459,6 +530,7 @@ export function NowPlayingOverlay({
                     type="button"
                     whileTap={{ scale: 0.93 }}
                     whileHover={{ scale: 1.05 }}
+                    transition={NYXON_SPRING}
                     onClick={onTogglePlay}
                     aria-label={isPlaying ? t.playerPause : t.playerPlay}
                     className="w-14 h-14 rounded-full bg-white text-zinc-950 flex items-center justify-center shadow-xl"
@@ -472,18 +544,20 @@ export function NowPlayingOverlay({
 
                   <button
                     type="button"
+                    disabled={isAdActive}
                     onClick={onNext}
                     aria-label={t.playerNextTrack}
-                    className="w-10 h-10 rounded-full flex items-center justify-center text-white hover:bg-white/[0.1] transition-colors"
+                    className="w-10 h-10 rounded-full flex items-center justify-center text-white hover:bg-white/[0.1] disabled:opacity-30 disabled:pointer-events-none transition-colors"
                   >
                     <SkipForward className="w-5 h-5 fill-current" />
                   </button>
 
                   <button
                     type="button"
+                    disabled={isAdActive}
                     onClick={onCycleRepeat}
                     aria-label={t.playerRepeatAria(repeatLabel)}
-                    className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
+                    className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors disabled:opacity-30 disabled:pointer-events-none ${
                       repeat !== 'off' ? 'text-rose-400' : 'text-zinc-400 hover:text-white'
                     }`}
                   >

@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   AlertCircle,
-  AudioLines,
   Eye,
   EyeOff,
   Globe,
@@ -20,6 +19,8 @@ import {
   signUpWithEmail,
   validateEmailPasswordInput,
 } from '../utils/firebaseSync';
+import { AnimatedTabIndicator, NYXON_SPRING } from './MotionPrimitives';
+import { NyxonLogo } from './NyxonLogo';
 
 interface AuthGateProps {
   onAuthenticated: (user: CloudUserProfile, isNewSignUp?: boolean) => void;
@@ -89,29 +90,20 @@ export function AuthGate({ onAuthenticated }: AuthGateProps) {
   const busy = isSubmittingEmail || isSigningInGoogle;
 
   return (
-    <div className="min-h-dvh w-screen relative overflow-y-auto bg-[#070709] text-zinc-100 flex flex-col justify-between px-4 py-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-      {/* Dynamic Liquid Glass Ambient Glow Backdrop */}
-      <div aria-hidden="true" className="pointer-events-none fixed inset-0 overflow-hidden z-0">
-        <div
-          className="absolute -top-36 left-1/4 w-[520px] h-[420px] rounded-full blur-[140px]"
-          style={{ background: 'rgba(244, 63, 94, 0.24)' }}
-        />
-        <div
-          className="absolute bottom-0 right-1/5 w-[460px] h-[380px] rounded-full blur-[145px]"
-          style={{ background: 'rgba(99, 102, 241, 0.2)' }}
-        />
-      </div>
+    <div className="min-h-dvh h-dvh w-screen relative overflow-y-auto bg-[#050508] text-zinc-100 flex flex-col justify-between px-4 py-5 pt-[max(1.25rem,env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+      {/* Seamless Full-Viewport Prismatic Refraction Backdrop */}
+      <div
+        aria-hidden="true"
+        className="fixed inset-0 h-dvh w-screen pointer-events-none z-0"
+        style={{
+          backgroundImage:
+            'radial-gradient(ellipse 80% 55% at 24% 0%, rgba(139, 92, 246, 0.22) 0%, transparent 72%), radial-gradient(ellipse 75% 55% at 82% 100%, rgba(34, 211, 238, 0.16) 0%, transparent 72%)',
+        }}
+      />
 
-      {/* Top Bar: Brand + Quick Language Switcher */}
+      {/* Top Bar: NYXON Brand + Spring Language Switcher */}
       <header className="relative z-10 w-full max-w-md mx-auto flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-rose-500 to-rose-600 flex items-center justify-center shadow-lg shadow-rose-500/25">
-            <AudioLines className="w-4 h-4 text-white" />
-          </div>
-          <span className="font-display text-lg font-semibold tracking-tight text-white">
-            {t.appName}
-          </span>
-        </div>
+        <NyxonLogo size="sm" showWordmark />
 
         <div
           role="group"
@@ -119,42 +111,39 @@ export function AuthGate({ onAuthenticated }: AuthGateProps) {
           className="inline-flex items-center gap-1 p-1 rounded-xl liquid-glass-subtle"
         >
           <Globe className="w-3.5 h-3.5 text-zinc-400 ml-1.5 mr-0.5 shrink-0" />
-          <button
-            type="button"
-            onClick={() => setLanguage('tr')}
-            aria-pressed={language === 'tr'}
-            className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
-              language === 'tr' ? 'bg-white text-zinc-950' : 'text-zinc-300 hover:text-white'
-            }`}
-          >
-            TR
-          </button>
-          <button
-            type="button"
-            onClick={() => setLanguage('en')}
-            aria-pressed={language === 'en'}
-            className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
-              language === 'en' ? 'bg-white text-zinc-950' : 'text-zinc-300 hover:text-white'
-            }`}
-          >
-            EN
-          </button>
+          {(['tr', 'en'] as const).map((langOption) => {
+            const active = language === langOption;
+            return (
+              <button
+                key={langOption}
+                type="button"
+                onClick={() => setLanguage(langOption)}
+                aria-pressed={active}
+                className={`relative px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                  active ? 'text-zinc-950' : 'text-zinc-300 hover:text-white'
+                }`}
+              >
+                {active && <AnimatedTabIndicator layoutId="auth-lang-pill" />}
+                <span className="relative z-10 uppercase">{langOption}</span>
+              </button>
+            );
+          })}
         </div>
       </header>
 
-      {/* Center Auth Glass Card */}
-      <main className="relative z-10 w-full max-w-md mx-auto my-auto py-6">
+      {/* Center Flagship Liquid Glass Auth Card */}
+      <main className="relative z-10 w-full max-w-md mx-auto my-auto py-5">
         <motion.div
-          initial={{ opacity: 0, y: 18, scale: 0.98 }}
+          initial={{ opacity: 0, y: 16, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ type: 'spring', stiffness: 360, damping: 30 }}
-          className="rounded-3xl liquid-glass-modal p-6 sm:p-8 space-y-6"
+          transition={NYXON_SPRING}
+          className="rounded-3xl nyxon-glass-panel glass-noise p-6 sm:p-8 space-y-6"
         >
-          <div className="text-center space-y-2">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-rose-500 to-rose-600 flex items-center justify-center shadow-xl shadow-rose-500/25 mx-auto mb-3">
-              <AudioLines className="w-6 h-6 text-white" />
+          <div className="text-center space-y-2.5">
+            <div className="flex justify-center mb-1">
+              <NyxonLogo size="xl" />
             </div>
-            <h1 className="font-display text-2xl font-bold tracking-tight text-white">
+            <h1 className="text-2xl font-bold tracking-tight text-white">
               {t.authWelcomeTitle}
             </h1>
             <p className="text-xs sm:text-sm text-zinc-400 leading-relaxed">
@@ -162,44 +151,45 @@ export function AuthGate({ onAuthenticated }: AuthGateProps) {
             </p>
           </div>
 
-          {/* Mode Tabs: Giriş Yap / Kayıt Ol */}
+          {/* Mode Tabs with layoutId Spring Physics */}
           <div
             role="tablist"
             aria-label={t.authTabSignIn}
-            className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-white/[0.05] border border-white/[0.09]"
+            className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-white/[0.04] border border-white/[0.1]"
           >
-            <button
-              role="tab"
-              type="button"
-              aria-selected={mode === 'signin'}
-              onClick={() => switchMode('signin')}
-              className={`py-2 px-3 rounded-lg text-xs font-semibold transition-colors ${
-                mode === 'signin'
-                  ? 'bg-white text-zinc-950 shadow-sm'
-                  : 'text-zinc-300 hover:text-white'
-              }`}
-            >
-              {t.authTabSignIn}
-            </button>
-            <button
-              role="tab"
-              type="button"
-              aria-selected={mode === 'signup'}
-              onClick={() => switchMode('signup')}
-              className={`py-2 px-3 rounded-lg text-xs font-semibold transition-colors ${
-                mode === 'signup'
-                  ? 'bg-white text-zinc-950 shadow-sm'
-                  : 'text-zinc-300 hover:text-white'
-              }`}
-            >
-              {t.authTabSignUp}
-            </button>
+            {(
+              [
+                { id: 'signin', label: t.authTabSignIn },
+                { id: 'signup', label: t.authTabSignUp },
+              ] as const
+            ).map((tab) => {
+              const active = mode === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  role="tab"
+                  type="button"
+                  aria-selected={active}
+                  onClick={() => switchMode(tab.id)}
+                  className={`relative py-2 px-3 rounded-lg text-xs font-semibold transition-colors ${
+                    active ? 'text-zinc-950' : 'text-zinc-300 hover:text-white'
+                  }`}
+                >
+                  {active && <AnimatedTabIndicator layoutId="auth-mode-tab" />}
+                  <span className="relative z-10">{tab.label}</span>
+                </button>
+              );
+            })}
           </div>
 
           {/* Email / Password Form */}
           <form onSubmit={handleEmailSubmit} noValidate className="space-y-4">
             {mode === 'signup' && (
-              <div>
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                transition={NYXON_SPRING}
+              >
                 <label
                   htmlFor="auth-display-name"
                   className="block text-xs font-medium text-zinc-300 mb-1.5"
@@ -215,10 +205,10 @@ export function AuthGate({ onAuthenticated }: AuthGateProps) {
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
                     placeholder={t.authDisplayNamePlaceholder}
-                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-white/[0.05] border border-white/[0.1] text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-rose-500/70"
+                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.12] text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-violet-400/70"
                   />
                 </div>
-              </div>
+              </motion.div>
             )}
 
             <div>
@@ -240,7 +230,7 @@ export function AuthGate({ onAuthenticated }: AuthGateProps) {
                     if (errorMsg) setErrorMsg(null);
                   }}
                   placeholder={t.authEmailPlaceholder}
-                  className="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-white/[0.05] border border-white/[0.1] text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-rose-500/70"
+                  className="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.12] text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-violet-400/70"
                 />
               </div>
             </div>
@@ -264,7 +254,7 @@ export function AuthGate({ onAuthenticated }: AuthGateProps) {
                     if (errorMsg) setErrorMsg(null);
                   }}
                   placeholder={t.authPasswordPlaceholder}
-                  className="w-full pl-10 pr-11 py-2.5 rounded-xl bg-white/[0.05] border border-white/[0.1] text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-rose-500/70"
+                  className="w-full pl-10 pr-11 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.12] text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-violet-400/70"
                 />
                 <button
                   type="button"
@@ -291,10 +281,12 @@ export function AuthGate({ onAuthenticated }: AuthGateProps) {
               </div>
             )}
 
-            <button
+            <motion.button
               type="submit"
               disabled={busy}
-              className="w-full py-2.5 px-4 rounded-xl text-sm font-semibold bg-rose-500 hover:bg-rose-400 disabled:opacity-50 text-white transition-colors shadow-lg shadow-rose-500/25 flex items-center justify-center gap-2"
+              whileTap={{ scale: 0.985 }}
+              transition={NYXON_SPRING}
+              className="w-full py-2.5 px-4 rounded-xl text-sm font-semibold bg-gradient-to-r from-violet-600 via-indigo-500 to-cyan-600 border-t border-white/25 hover:brightness-110 disabled:opacity-50 text-white transition shadow-lg shadow-indigo-500/25 flex items-center justify-center gap-2"
             >
               {isSubmittingEmail ? (
                 <>
@@ -304,22 +296,24 @@ export function AuthGate({ onAuthenticated }: AuthGateProps) {
               ) : (
                 <span>{mode === 'signin' ? t.authSubmitSignIn : t.authSubmitSignUp}</span>
               )}
-            </button>
+            </motion.button>
           </form>
 
           {/* Divider */}
           <div className="relative flex items-center justify-center">
             <div className="w-full border-t border-white/[0.09]" />
-            <span className="px-3 text-xs text-zinc-500 bg-transparent backdrop-blur-sm">
+            <span className="px-3 text-xs text-zinc-500 bg-transparent">
               {t.authDividerOr}
             </span>
             <div className="w-full border-t border-white/[0.09]" />
           </div>
 
           {/* Google Sign-In */}
-          <button
+          <motion.button
             type="button"
             disabled={busy}
+            whileTap={{ scale: 0.985 }}
+            transition={NYXON_SPRING}
             onClick={handleGoogleLogin}
             className="w-full py-2.5 px-4 rounded-xl text-sm font-semibold bg-white text-zinc-950 hover:bg-zinc-200 disabled:opacity-50 transition-colors flex items-center justify-center gap-2.5 shadow-md"
           >
@@ -348,7 +342,7 @@ export function AuthGate({ onAuthenticated }: AuthGateProps) {
             <span>
               {isSigningInGoogle ? t.authGoogleSigningIn : t.authGoogleButton}
             </span>
-          </button>
+          </motion.button>
         </motion.div>
       </main>
 

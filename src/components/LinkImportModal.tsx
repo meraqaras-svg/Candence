@@ -9,19 +9,22 @@ import {
   Loader2,
   Play,
   Sparkles,
+  Upload,
   X,
 } from 'lucide-react';
 import type { Track } from '../types/music';
 import { useI18n } from '../utils/I18nContext';
 import {
+  MAX_PLAYLIST_IMPORT_TRACKS,
   SAMPLE_IMPORT_LINKS,
-  SAMPLE_PLAYLIST_IMPORT,
   matchTracklistToYouTube,
+  parseMusicLink,
   parseTracklistText,
   resolveLinkAndImport,
   resolveSpotifyPlaylistUrl,
 } from '../utils/youtubeAndOembed';
 import { CoverArt } from './CoverArt';
+import { AnimatedTabIndicator, NYXON_SPRING } from './MotionPrimitives';
 
 export type ImportModalTab = 'single' | 'playlist';
 
@@ -58,7 +61,7 @@ export function LinkImportModal({
   const [playlistName, setPlaylistName] = useState('');
   const [playlistCover, setPlaylistCover] = useState<string | undefined>(undefined);
   const [tracklistText, setTracklistText] = useState('');
-  const [embedFallbackNote, setEmbedFallbackNote] = useState<string | null>(null);
+  const [spotifyLoadedCount, setSpotifyLoadedCount] = useState<number | null>(null);
   const [playlistError, setPlaylistError] = useState<string | null>(null);
   const [isFetchingEmbed, setIsFetchingEmbed] = useState(false);
   const [isMatchingTracks, setIsMatchingTracks] = useState(false);
@@ -67,6 +70,8 @@ export function LinkImportModal({
   );
 
   const abortRef = useRef<AbortController | null>(null);
+  const lastAutoFetchedUrlRef = useRef<string>('');
+  const csvFileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -80,11 +85,12 @@ export function LinkImportModal({
       setPlaylistName('');
       setPlaylistCover(undefined);
       setTracklistText('');
-      setEmbedFallbackNote(null);
+      setSpotifyLoadedCount(null);
       setPlaylistError(null);
       setIsFetchingEmbed(false);
       setIsMatchingTracks(false);
       setMatchProgress(null);
+      lastAutoFetchedUrlRef.current = '';
     } else {
       abortRef.current?.abort();
     }
@@ -136,40 +142,83 @@ export function LinkImportModal({
       return;
     }
 
+    lastAutoFetchedUrlRef.current = clean;
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
     setIsFetchingEmbed(true);
     setPlaylistError(null);
-    setEmbedFallbackNote(null);
+    setSpotifyLoadedCount(null);
 
     try {
       const result = await resolveSpotifyPlaylistUrl(clean, controller.signal);
       if (controller.signal.aborted) return;
 
-      setPlaylistName(result.playlistTitle);
+      if (result.playlistTitle) {
+        setPlaylistName(result.playlistTitle);
+      }
       setPlaylistCover(result.coverUrl);
-      setTracklistText(
-        result.trackLines.map((l) => `${l.artist} - ${l.title}`).join('\n')
-      );
-      if (result.usedFallbackNotice) {
-        setEmbedFallbackNote(t.importSpotifyFallbackNotice);
+
+      if (result.trackLines.length > 0) {
+        setTracklistText(
+          result.trackLines.map((l) => `${l.artist} - ${l.title}`).join('\n')
+        );
+        setSpotifyLoadedCount(result.trackLines.length);
+      } else {
+        setTracklistText('');
+        setPlaylistError(t.importSpotifyParseError);
       }
       setIsFetchingEmbed(false);
     } catch (err) {
       if ((err as Error)?.name === 'AbortError') return;
+      setTracklistText('');
       setPlaylistError(t.importSpotifyParseError);
       setIsFetchingEmbed(false);
     }
   };
 
-  const handleLoadSamplePlaylist = () => {
-    setPlaylistUrlInput(SAMPLE_PLAYLIST_IMPORT.spotifyUrl);
-    setPlaylistName(SAMPLE_PLAYLIST_IMPORT.name);
-    setTracklistText(SAMPLE_PLAYLIST_IMPORT.tracklistText);
-    setPlaylistError(null);
-    setEmbedFallbackNote(null);
+  const handlePlaylistUrlChange = (nextValue: string) => {
+    setPlaylistUrlInput(nextValue);
+    if (playlistError) setPlaylistError(null);
+    if (spotifyLoadedCount !== null) setSpotifyLoadedCount(null);
+
+    const trimmed = nextValue.trim();
+    const parsed = parseMusicLink(trimmed);
+    if (
+      parsed &&
+      parsed.provider === 'spotify' &&
+      parsed.kind === 'playlist' &&
+      parsed.spotifyId &&
+      trimmed !== lastAutoFetchedUrlRef.current
+    ) {
+      void handleFetchSpotifyPlaylistUrl(trimmed);
+    }
+  };
+
+  const handleCsvFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const parsed = parseTracklistText(text);
+      if (parsed.length === 0) {
+        setPlaylistError(t.importCsvEmptyError);
+        return;
+      }
+
+      setTracklistText(parsed.map((l) => `${l.artist} - ${l.title}`).join('\n'));
+      setPlaylistError(null);
+      setSpotifyLoadedCount(null);
+      if (!playlistName.trim()) {
+        const cleanFileName = file.name.replace(/\.(csv|txt)$/i, '').replace(/[_-]+/g, ' ').trim();
+        if (cleanFileName) setPlaylistName(cleanFileName);
+      }
+    } catch {
+      setPlaylistError(t.importCsvEmptyError);
+    }
   };
 
   const handleImportMultiTrackPlaylist = async (e: React.FormEvent) => {
@@ -192,14 +241,22 @@ export function LinkImportModal({
           controller.signal
         );
         lines = res.trackLines;
-        if (!finalName) finalName = res.playlistTitle;
+        if (!finalName && res.playlistTitle) finalName = res.playlistTitle;
         if (!finalCover) finalCover = res.coverUrl;
-        setTracklistText(lines.map((l) => `${l.artist} - ${l.title}`).join('\n'));
-        if (res.usedFallbackNotice) setEmbedFallbackNote(t.importSpotifyFallbackNotice);
+        if (lines.length > 0) {
+          setTracklistText(lines.map((l) => `${l.artist} - ${l.title}`).join('\n'));
+          setSpotifyLoadedCount(lines.length);
+        } else {
+          setTracklistText('');
+          setIsFetchingEmbed(false);
+          setPlaylistError(t.importSpotifyParseError);
+          return;
+        }
       } catch (err) {
         if ((err as Error)?.name === 'AbortError') return;
+        setTracklistText('');
         setIsFetchingEmbed(false);
-        setPlaylistError(t.importPlaylistEmptyError);
+        setPlaylistError(t.importSpotifyParseError);
         return;
       }
       setIsFetchingEmbed(false);
@@ -211,7 +268,7 @@ export function LinkImportModal({
     }
 
     setIsMatchingTracks(true);
-    setMatchProgress({ done: 0, total: Math.min(25, lines.length) });
+    setMatchProgress({ done: 0, total: Math.min(MAX_PLAYLIST_IMPORT_TRACKS, lines.length) });
 
     try {
       const matchedTracks = await matchTracklistToYouTube(
@@ -260,7 +317,7 @@ export function LinkImportModal({
             initial={{ opacity: 0, scale: 0.95, y: 12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 10 }}
-            transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+            transition={NYXON_SPRING}
             className="w-full max-w-xl max-h-[85dvh] overflow-y-auto rounded-2xl liquid-glass-modal backdrop-blur-2xl border border-white/[0.12] p-5 sm:p-6 space-y-5"
             onClick={(e) => e.stopPropagation()}
           >
@@ -298,28 +355,40 @@ export function LinkImportModal({
                 type="button"
                 aria-selected={activeTab === 'single'}
                 onClick={() => setActiveTab('single')}
-                className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
+                className={`relative flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
                   activeTab === 'single'
-                    ? 'bg-white text-zinc-950 shadow-sm'
+                    ? 'text-zinc-950'
                     : 'text-zinc-300 hover:text-white'
                 }`}
               >
-                <Link2 className="w-3.5 h-3.5" />
-                <span>{t.importTabSingle}</span>
+                {activeTab === 'single' && (
+                  <AnimatedTabIndicator
+                    layoutId="import-mode-tab"
+                    className="rounded-lg bg-white shadow-sm"
+                  />
+                )}
+                <Link2 className="relative z-10 w-3.5 h-3.5" />
+                <span className="relative z-10">{t.importTabSingle}</span>
               </button>
               <button
                 role="tab"
                 type="button"
                 aria-selected={activeTab === 'playlist'}
                 onClick={() => setActiveTab('playlist')}
-                className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
+                className={`relative flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
                   activeTab === 'playlist'
-                    ? 'bg-white text-zinc-950 shadow-sm'
+                    ? 'text-zinc-950'
                     : 'text-zinc-300 hover:text-white'
                 }`}
               >
-                <ListMusic className="w-3.5 h-3.5" />
-                <span>{t.importTabPlaylist}</span>
+                {activeTab === 'playlist' && (
+                  <AnimatedTabIndicator
+                    layoutId="import-mode-tab"
+                    className="rounded-lg bg-white shadow-sm"
+                  />
+                )}
+                <ListMusic className="relative z-10 w-3.5 h-3.5" />
+                <span className="relative z-10">{t.importTabPlaylist}</span>
               </button>
             </div>
 
@@ -470,29 +539,19 @@ export function LinkImportModal({
               /* Multi-Track Playlist Importer Tab */
               <form onSubmit={handleImportMultiTrackPlaylist} className="space-y-4">
                 <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <label
-                      htmlFor="spotify-playlist-url-input"
-                      className="text-xs font-medium text-zinc-300"
-                    >
-                      {t.importSpotifyUrlLabel}
-                    </label>
-                    <button
-                      type="button"
-                      onClick={handleLoadSamplePlaylist}
-                      className="inline-flex items-center gap-1 text-xs font-medium text-rose-400 hover:text-rose-300 transition-colors"
-                    >
-                      <Sparkles className="w-3 h-3" />
-                      <span>{t.importLoadSamplePlaylist}</span>
-                    </button>
-                  </div>
+                  <label
+                    htmlFor="spotify-playlist-url-input"
+                    className="block text-xs font-medium text-zinc-300"
+                  >
+                    {t.importSpotifyUrlLabel}
+                  </label>
 
                   <div className="flex items-center gap-2">
                     <input
                       id="spotify-playlist-url-input"
                       type="url"
                       value={playlistUrlInput}
-                      onChange={(e) => setPlaylistUrlInput(e.target.value)}
+                      onChange={(e) => handlePlaylistUrlChange(e.target.value)}
                       placeholder="https://open.spotify.com/playlist/..."
                       className="flex-1 px-3.5 py-2 rounded-xl bg-white/[0.05] border border-white/[0.1] text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-rose-500/70"
                     />
@@ -500,16 +559,17 @@ export function LinkImportModal({
                       type="button"
                       disabled={isFetchingEmbed || isMatchingTracks}
                       onClick={() => handleFetchSpotifyPlaylistUrl()}
-                      className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-white/[0.08] hover:bg-white/[0.14] border border-white/[0.1] text-white transition-colors whitespace-nowrap shrink-0"
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-white/[0.08] hover:bg-white/[0.14] border border-white/[0.1] text-white transition-colors whitespace-nowrap shrink-0"
                     >
-                      {isFetchingEmbed ? t.importReadingUrl : t.importReadUrl}
+                      {isFetchingEmbed && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      <span>{isFetchingEmbed ? t.importReadingUrl : t.importReadUrl}</span>
                     </button>
                   </div>
                 </div>
 
-                {embedFallbackNote && (
-                  <div className="rounded-xl bg-amber-500/10 border border-amber-500/25 px-3.5 py-2.5 text-xs text-amber-200 leading-relaxed">
-                    {embedFallbackNote}
+                {spotifyLoadedCount !== null && spotifyLoadedCount > 0 && !playlistError && (
+                  <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/25 px-3.5 py-2 text-xs text-emerald-200 leading-relaxed">
+                    {t.importSpotifyLoadedCount(spotifyLoadedCount)}
                   </div>
                 )}
 
@@ -531,7 +591,7 @@ export function LinkImportModal({
                 </div>
 
                 <div>
-                  <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
                     <label
                       htmlFor="playlist-tracklist-textarea"
                       className="flex items-center gap-1.5 text-xs font-medium text-zinc-300"
@@ -539,9 +599,27 @@ export function LinkImportModal({
                       <FileSpreadsheet className="w-3.5 h-3.5 text-rose-400" />
                       <span>{t.importTracklistLabel}</span>
                     </label>
-                    <span className="text-xs text-zinc-400 tabular-nums">
-                      {t.tracksDetected(parsedLineCount)}
-                    </span>
+                    <div className="flex items-center gap-2.5">
+                      <input
+                        ref={csvFileInputRef}
+                        type="file"
+                        accept=".csv,.txt,text/csv,text/plain"
+                        onChange={handleCsvFileUpload}
+                        className="hidden"
+                        aria-label={t.importUploadCsvBtn}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => csvFileInputRef.current?.click()}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.1] text-[11px] font-medium text-zinc-200 transition-colors"
+                      >
+                        <Upload className="w-3 h-3 text-rose-400" />
+                        <span>{t.importUploadCsvBtn}</span>
+                      </button>
+                      <span className="text-xs text-zinc-400 tabular-nums">
+                        {t.tracksDetected(parsedLineCount)}
+                      </span>
+                    </div>
                   </div>
                   <textarea
                     id="playlist-tracklist-textarea"
@@ -550,13 +628,21 @@ export function LinkImportModal({
                     onChange={(e) => {
                       setTracklistText(e.target.value);
                       if (playlistError) setPlaylistError(null);
+                      if (spotifyLoadedCount !== null) setSpotifyLoadedCount(null);
                     }}
-                    placeholder={`Daft Punk - Instant Crush\nTame Impala - The Less I Know The Better\nThe Weeknd - Blinding Lights`}
+                    placeholder={`Sanatçı - Şarkı Adı\nÖrn: Daft Punk - Instant Crush\nveya Exportify CSV yapıştırın / yükleyin`}
                     className="w-full rounded-xl bg-white/[0.05] border border-white/[0.1] p-3 text-xs sm:text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-rose-500/70 font-mono leading-relaxed resize-none"
                   />
                 </div>
 
-                {playlistError && <p className="text-xs text-rose-400">{playlistError}</p>}
+                {playlistError && (
+                  <div
+                    role="alert"
+                    className="rounded-xl bg-rose-500/12 border border-rose-500/30 px-3.5 py-2.5 text-xs text-rose-200 leading-relaxed"
+                  >
+                    {playlistError}
+                  </div>
+                )}
 
                 <div className="flex items-center justify-end gap-3 pt-1">
                   <button

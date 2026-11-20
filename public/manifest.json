@@ -1,15 +1,22 @@
 {
   "id": "/",
-  "name": "Cadence",
-  "short_name": "Cadence",
-  "description": "Sleek dark-mode Liquid Glass music player with synced lyrics, playlist importer, local audio, and cloud sync.",
+  "name": "NYXON",
+  "short_name": "NYXON",
+  "description": "NYXON — Sıvı cam arayüzlü yeni nesil müzik çalar, çevrimdışı ses kasası ve bulut eşitleme.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#070709",
-  "theme_color": "#070709",
+  "theme_color": "#050508",
+  "background_color": "#050508",
+  "categories": ["music", "entertainment"],
   "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
     {
       "src": "/pwa-192x192.png",
       "sizes": "192x192",
